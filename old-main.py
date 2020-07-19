@@ -8,12 +8,9 @@ from queue import Queue
 import os
 import threading
 #import multiprocessing
-from time import time
-print_lock = threading.Lock()
-count_lock = threading.Lock()
 
+print_lock = threading.Lock()
 message_queue = Queue()
-count = 0
 
 class EmailHTMLParser(HTMLParser):
     def __init__(self, *args, **kwargs):
@@ -23,6 +20,9 @@ class EmailHTMLParser(HTMLParser):
         
     def handle_data(self, data):
         self.data.append(data)
+
+    def unknown_decl(self, data):
+        self.unknowndata.append(data)
 
 def get_config():
     load_dotenv()
@@ -50,7 +50,7 @@ def parse_html(part):
     data = [ x.strip().lower() for x in html_parser.data if x.isspace() != True ]
     returnData = []
     for item in data:
-        returnData.extend([ x for x in item.split()])
+        returnData.extend(item.split())
     returnData = list(dict.fromkeys(returnData))
     del html_parser
     return returnData
@@ -80,7 +80,6 @@ def get_emails(email_add, password, imap_server, port):
         if typ == 'OK' and messages[0]:
             for index, num in enumerate(messages[0].split()):
                 typ, data = mail_connection.fetch(num, '(RFC822)')
-                print(num)
                 message = message_from_bytes(data[0][1])
                 yield message
 
@@ -89,10 +88,30 @@ def manager():
         message = message_queue.get()
         process_message(message)
         message_queue.task_done()
+
+#def part_manager(part_queue):
+    #while True:
+        #part = part_queue.get()[0]
+        #important_keys = part_queue.get()[1]
+        #process_part(part, important_keys)
+        #part_queue.task_done()
+
+def process_part(part, important_keys):
+    if part.get_content_maintype() == 'text' and part.get_content_subtype() == 'html':
+        if is_match(parse_html(part), ['Leo', 'Qi']):
+            return 'Something'
+
+    else:
+        return 'Nothing'
+                #mail_connection.copy(num, 'Sorted') # was here
+    #with print_lock:
+        #print(' [Finished]')
+    #changes status typ, data = mail_connection.store(num, '+FLAGS', '\\Seen')
     
 def process_message(message):
-    with print_lock:
-        print('[STARTED MSG] ', end = '')
+    #with print_lock:
+        #print(f'[Started][ID={threading.get_ident()}]', end='')
+    #print(message.keys())
     important_keys = {
         'Date': message.get('Date'),
         'Sender': message.get('Sender'),
@@ -101,30 +120,21 @@ def process_message(message):
         'Subject': message.get('Subject')
     }
     for part in message.walk():
-        if part.get_content_maintype() == 'text' and part.get_content_subtype() == 'html':
-            if is_match(parse_html(part), ['Leo', 'Qi']):
-                with print_lock:
-                    print('TRUE  [Finished]')
-                return True
-    with print_lock:
-        print('FALSE [Finished]')
+        process_part(part, important_keys)
+    #print(important_keys)
+    #part_queue = Queue()
+    #for x in range(10):
+        #t = threading.Thread(target=part_manager, args=(part_queue,))
+        #t.daemon = True
+        #t.start()
+        
+    #for part in message.walk():
+        #part_queue.put((part, important_keys))
+    #part_queue.join()
+    #del part_queue
 
-    with count_lock:
-        global count
-        count += 1
-    
-    return False
-
-    """
-    mail_connection.copy(num, 'Sorted') # was here
-    #changes status
-    typ, data = mail_connection.store(num, '+FLAGS', '\\Seen')
-    """
-    
 def main(email_add, password, imap_server, port):
-    start = time()
-    global count
-    for x in range(30):
+    for x in range(50):
         t = threading.Thread(target=manager)
         t.daemon = True
         t.start()
@@ -135,12 +145,8 @@ def main(email_add, password, imap_server, port):
             message_queue.put(message)
         
         message_queue.join()
-        end = time()
-        print('Finished Processing ALL ************')
-        print(f'Processed {count} messages in {end - start} ms')
-    else:
-        print('No messages')
-
+        print('Finished Processing ALL ************')    
+        
 if __name__ == '__main__':
     USERNAME, PASSWORD, IMAPSERVER, PORT = get_config()
     messages = main(USERNAME, PASSWORD, IMAPSERVER, PORT)
