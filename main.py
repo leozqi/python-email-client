@@ -1,18 +1,19 @@
 from email import message_from_bytes, parser
 from imaplib import IMAP4_SSL
-#from bs4 import BeautifulSoup
 from html.parser import HTMLParser
 from dotenv import load_dotenv
 from fuzzywuzzy import fuzz
 from queue import Queue
-import os
-from multiprocessing import Process, JoinableQueue, Lock, Pool
+from multiprocessing import Pool
 from time import time
-import sys
+import os
 
-message_queue = JoinableQueue()
-NUM_PROCS = 4
-
+"""
+mail_connection.copy(num, 'Sorted') # was here
+#changes status
+typ, data = mail_connection.store(num, '+FLAGS', '\\Seen')
+"""
+    
 class EmailHTMLParser(HTMLParser):
     def __init__(self, *args, **kwargs):
         super(EmailHTMLParser, self).__init__(*args, **kwargs)
@@ -46,6 +47,10 @@ def parse_html(part):
         return ['']
     
     data = [ x.strip().lower() for x in html_parser.data if x.isspace() != True ]
+    return data
+
+def get_words(part):
+    data = parse_html(part)
     returnData = []
     for item in data:
         returnData.extend([ x for x in item.split()])
@@ -53,7 +58,14 @@ def parse_html(part):
     del html_parser
     return returnData
 
-def is_match(termList, matchList):
+def specific_match(termList, matchList):
+    for search in matchList:
+        for term in termList:
+            if term in search:
+                return True
+    return False
+
+def ratio_is_match(termList, matchList):
     for search in matchList: # to do: make all termList items must be 90
         for item in termList:
             if fuzz.WRatio(item, search) > 90:
@@ -80,17 +92,6 @@ def get_emails(email_add, password, imap_server, port):
                 typ, data = mail_connection.fetch(num, '(RFC822)')
                 message = message_from_bytes(data[0][1])
                 yield message, num
-
-
-def manager():
-    global message_queue
-    while True:
-        message = message_queue.get()
-        if message is None:
-            break
-        process_message(message)
-        message_queue.task_done()
-    message_queue.task_done()
     
 def process_message(message_info):
     message = message_info[0]
@@ -104,15 +105,11 @@ def process_message(message_info):
     }
     for part in message.walk():
         if part.get_content_maintype() == 'text' and part.get_content_subtype() == 'html':
-            if is_match(parse_html(part), ['Leo', 'Qi']):
+            #if ratio_is_match(get_words(part), ['Leo', 'Qi']):
+                #return num
+            if specific_match(parse_html(part), ['Dropbox']):
                 return num
     return False
-
-    """
-    mail_connection.copy(num, 'Sorted') # was here
-    #changes status
-    typ, data = mail_connection.store(num, '+FLAGS', '\\Seen')
-    """
     
 def main(email_add, password, imap_server, port):
     start = time()
@@ -120,15 +117,15 @@ def main(email_add, password, imap_server, port):
     messages = get_emails(email_add, password, imap_server, port)
     if messages:
         copy_list = []
-        with Pool(processes=4) as pool:
-            for i in pool.imap(process_message, messages, 10):
+        with Pool() as pool:
+            for i in pool.imap(process_message, messages, 100):
                 print(i)
                 count += 1
                 if i != False:
                     copy_list.append(i)
         end = time()
         print('Finished Processing ALL ************')
-        print(f'Processed {count} messages in {end - start} ms')
+        print(f'Processed {count} messages in {end - start}s')
         print(copy_list)
     else:
         print('No messages')
