@@ -6,14 +6,12 @@ from dotenv import load_dotenv
 from fuzzywuzzy import fuzz
 from queue import Queue
 import os
-import threading
-#import multiprocessing
+from multiprocessing import Process, JoinableQueue, Lock, Pool
 from time import time
-print_lock = threading.Lock()
-count_lock = threading.Lock()
+import sys
 
-message_queue = Queue()
-count = 0
+message_queue = JoinableQueue()
+NUM_PROCS = 4
 
 class EmailHTMLParser(HTMLParser):
     def __init__(self, *args, **kwargs):
@@ -80,19 +78,23 @@ def get_emails(email_add, password, imap_server, port):
         if typ == 'OK' and messages[0]:
             for index, num in enumerate(messages[0].split()):
                 typ, data = mail_connection.fetch(num, '(RFC822)')
-                print(num)
                 message = message_from_bytes(data[0][1])
-                yield message
+                yield message, num
+
 
 def manager():
+    global message_queue
     while True:
         message = message_queue.get()
+        if message is None:
+            break
         process_message(message)
         message_queue.task_done()
+    message_queue.task_done()
     
-def process_message(message):
-    with print_lock:
-        print('[STARTED MSG] ', end = '')
+def process_message(message_info):
+    message = message_info[0]
+    num = message_info[1]
     important_keys = {
         'Date': message.get('Date'),
         'Sender': message.get('Sender'),
@@ -103,16 +105,7 @@ def process_message(message):
     for part in message.walk():
         if part.get_content_maintype() == 'text' and part.get_content_subtype() == 'html':
             if is_match(parse_html(part), ['Leo', 'Qi']):
-                with print_lock:
-                    print('TRUE  [Finished]')
-                return True
-    with print_lock:
-        print('FALSE [Finished]')
-
-    with count_lock:
-        global count
-        count += 1
-    
+                return num
     return False
 
     """
@@ -123,21 +116,20 @@ def process_message(message):
     
 def main(email_add, password, imap_server, port):
     start = time()
-    global count
-    for x in range(30):
-        t = threading.Thread(target=manager)
-        t.daemon = True
-        t.start()
-        
+    count = 0
     messages = get_emails(email_add, password, imap_server, port)
     if messages:
-        for message in messages:
-            message_queue.put(message)
-        
-        message_queue.join()
+        copy_list = []
+        with Pool(processes=4) as pool:
+            for i in pool.imap(process_message, messages, 10):
+                print(i)
+                count += 1
+                if i != False:
+                    copy_list.append(i)
         end = time()
         print('Finished Processing ALL ************')
         print(f'Processed {count} messages in {end - start} ms')
+        print(copy_list)
     else:
         print('No messages')
 
