@@ -3,18 +3,42 @@ from imaplib import IMAP4_SSL
 from html.parser import HTMLParser
 from dotenv import load_dotenv
 from fuzzywuzzy import fuzz
-from queue import Queue
-from multiprocessing import Pool, Lock
+from multiprocessing import Pool
 from time import time
-import os
+from os import getenv
+from queue import Queue
+from threading import Thread
 
-"""
-mail_connection.copy(num, 'Sorted') # was here
-#changes status
-typ, data = mail_connection.store(num, '+FLAGS', '\\Seen')
-"""
+class EmailConnection():
+    """
+    Defines an email connection to our IMAP server
+    """
+    def __init__(self):
+        #print('Getting config... ', end='')
+        self.get_config()
+        #print('Got config!')
+        #print('Connecting to server... ', end='')
+        self.conn = IMAP4_SSL(self.imap, self.port)
+        #print('Connected!')
+        #print('Logging in... ', end='')
+        self.conn.login(self.email, self.pswrd)
+        #print('Logged in!')
+
+    def __del__(self):
+        self.conn.close()
+        self.conn.logout()
+
+    def get_config(self):
+        load_dotenv()
+        self.email = getenv('USER_EMAIL')
+        self.pswrd = getenv('USER_PASSWORD')
+        self.imap = getenv('IMAP_SERVER')
+        self.port = getenv('PORT')
 
 class EmailHTMLParser(HTMLParser):
+    """
+    Extends the HTMLParser class for our own email parser
+    """
     def __init__(self, *args, **kwargs):
         super(EmailHTMLParser, self).__init__(*args, **kwargs)
         self.data = []
@@ -25,29 +49,14 @@ class EmailHTMLParser(HTMLParser):
     def clear_data(self):
         self.data = []
 
-def get_config():
-    load_dotenv()
-    USER_EMAIL = os.getenv('USER_EMAIL')
-    USER_PASSWORD = os.getenv('USER_PASSWORD')
-    IMAP_SERVER = os.getenv('IMAP_SERVER')
-    PORT = os.getenv('PORT')
-
-    if USER_EMAIL and USER_PASSWORD and IMAP_SERVER and PORT:
-        print('Config Success')
-        return USER_EMAIL, USER_PASSWORD, IMAP_SERVER, PORT
-    else:
-        raise ValueError('Add an .env file with the proper config information')       
-
 def parse_html(part, html_parser):
     if part is not None:
         try:
-            html_parser.feed(part.get_payload())
-             
+            html_parser.feed(part.get_payload()) 
         except NotImplementedError:
             return ['']
     else:
         return ['']
-    
     data = [ x.strip().lower() for x in html_parser.data if x.isspace() != True ]
     html_parser.clear_data()
     return data
@@ -62,7 +71,7 @@ def get_words(part, html_parser):
 
 def specific_match(termList, matchList):
     for term in termList:
-        for search in matchList:   
+        for search in matchList:  
             if term in search:
                 return True
     return False
@@ -74,39 +83,67 @@ def ratio_is_match(termList, matchList):
                 return True
     return False
 
-def get_emails(email_add, password, imap_server, port):
-    print('Connecting to server...')
-    with IMAP4_SSL(imap_server, port=port) as mail_connection:
-        print('Logging in to server...')
-        mail_connection.login(email_add, password)
-        print('Log in OK!')
-        print('There are ' + str(mail_connection.select('INBOX')[1]) + ' messages in INBOX')
-        typ, messages = mail_connection.search(
-            None,
-            'SEEN'
-        )
-        messageList = []
-        if typ == 'OK' and messages[0]:
-            append = messageList.append
-            for index, num in enumerate(messages[0].split()):
-                typ, data = mail_connection.fetch(num, '(RFC822)')
-                message = message_from_bytes(data[0][1])
-                append((message, num))
-            print('Got messages!')
-            return messageList
+def fetch_one(inbox, outbox):
+    email = EmailConnection()
+    conn = email.conn
+    conn.select('INBOX')
+    
+    while True:
+        num = inbox.get()
+        typ, data = conn.fetch(num, '(RFC822)')
+        outbox.put((message_from_bytes(data[0][1]), num))
+        inbox.task_done()
+        print('Completed 1')
 
-def copy_emails(email_add, password, imap_server, port, msg_list):
-    print('Connecting to server...')
-    with IMAP4_SSL(imap_server, port=port) as mail_connection:
-        print('Logging in to server...')
-        mail_connection.login(email_add, password)
-        print('Log in OK!')
-        if 'Sorted' not in mail_connection.list():
-            mail_connection.create('Sorted')
-        mail_connection.select('INBOX')
-        for num in msg_list:
-            mail_connection.copy(num, 'Sorted')
-        print('Finished!')
+def get_emails(conn):
+    mail_connection = conn
+    print(
+        'There are '
+        + str(mail_connection.select('INBOX')[1])
+        + ' messages in INBOX'
+    )
+    mail_connection.select('INBOX')
+    typ, messages = mail_connection.search(
+        None,
+        'ALL'
+    )
+    message_list = []
+    append = message_list.append
+    print('Getting Messages... ', end='')
+    if typ == 'OK' and messages[0]:
+        print('Got messages!')
+        message_queue = Queue()
+        finished_queue = Queue()
+        for x in range(10):
+            worker = Thread(target=fetch_one, args=(message_queue, finished_queue))
+            worker.setDaemon(True)
+            worker.start()
+        
+        for index, num in enumerate(messages[0].split()):
+            message_queue.put(num)
+        message_queue.join()
+
+        message_list = []
+        while not finished_queue.empty():
+            message_list.append(finished_queue.get())
+            finished_queue.task_done()
+        return message_list
+    else:
+        print('No message response')
+        return ['']
+
+def copy_emails(conn, msg_list):
+    mail_connection = conn
+    print('Logging in to server...')
+    mail_connection.login(email_add, password)
+    print('Log in OK!')
+    if 'Sorted' in mail_connection.list():
+        mail_connection.delete(mailbox)
+    mail_connection.create('Sorted')
+    mail_connection.select('INBOX')
+    for num in msg_list:
+        mail_connection.copy(num, 'Sorted')
+    print('Finished!')
 
 def process_message(message_info):
     html_parser = EmailHTMLParser()
@@ -126,14 +163,18 @@ def process_message(message_info):
                 return num
     return False
 
-def main(email_add, password, imap_server, port):
+def main():
+    print('Connecting to server... ', end='')
+    connection = EmailConnection()
+    mail_connection = connection.conn
+    print('Connected!')
     start = time()
     count = 0
-    messages = get_emails(email_add, password, imap_server, port)
+    messages = get_emails(mail_connection)
     if messages:
         copy_list = []
-        with Pool() as pool:
-            for i in pool.imap_unordered(process_message, messages, 35):
+        with Pool(processes=20) as pool:
+            for i in pool.imap_unordered(process_message, messages, 1):
                 print(i)
                 count += 1
                 if i != False:
@@ -142,10 +183,28 @@ def main(email_add, password, imap_server, port):
         end = time()
         print('Finished Processing ALL ************')
         print(f'Processed {count} messages in {end - start}s')
-        #copy_emails(email_add, password, imap_server, port, copy_list)
+        #copy_emails(mail_connection, copy_list)
     else:
         print('No messages')
 
 if __name__ == '__main__':
-    USERNAME, PASSWORD, IMAPSERVER, PORT = get_config()
-    messages = main(USERNAME, PASSWORD, IMAPSERVER, PORT)
+    messages = main()
+
+## ------ Other Stuff ------ ##
+##def fetch_one(val):
+##    num = val[1]
+##    conn = open_conn(
+##        getenv('USER_EMAIL'),
+##        getenv('USER_PASSWORD'),
+##        getenv('IMAP_SERVER'),
+##        getenv('PORT')
+##    )
+##    conn.select('INBOX')
+##    typ, data = conn.fetch(num, '(RFC822)')
+##    conn.close()
+##    conn.logout()
+##    return (message_from_bytes(data[0][1]), num)
+##
+##mail_connection.copy(num, 'Sorted') # was here
+###changes status
+##typ, data = mail_connection.store(num, '+FLAGS', '\\Seen')
