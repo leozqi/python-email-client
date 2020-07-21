@@ -8,21 +8,18 @@ from time import time
 from os import getenv
 from queue import Queue
 from threading import Thread
+from functools import partial
 
 class EmailConnection():
     """
-    Defines an email connection to our IMAP server
+    Defines an email connection to our IMAP server.
+    Requires a valid dotenv file to be present.
+    Be sure to delete the object afterwards to log out of the server.
     """
     def __init__(self):
-        #print('Getting config... ', end='')
         self.get_config()
-        #print('Got config!')
-        #print('Connecting to server... ', end='')
         self.conn = IMAP4_SSL(self.imap, self.port)
-        #print('Connected!')
-        #print('Logging in... ', end='')
         self.conn.login(self.email, self.pswrd)
-        #print('Logged in!')
 
     def __del__(self):
         self.conn.close()
@@ -34,6 +31,15 @@ class EmailConnection():
         self.pswrd = getenv('USER_PASSWORD')
         self.imap = getenv('IMAP_SERVER')
         self.port = getenv('PORT')
+
+        if not (self.email and self.pswrd and self.imap and self.port):
+            raise ValueError(
+                'Add a file with name ".env" with the correct values:\n'
+                'USER_EMAIL: the user\'s email.\n'
+                'USER_PASSWORD: the user\'s password for that email.\n'
+                'IMAP_SERVER: the imap server of the email address.\n'
+                'PORT: the port of the imap server. Usually 993.\n'
+            )
 
 class EmailHTMLParser(HTMLParser):
     """
@@ -93,7 +99,7 @@ def fetch_one(inbox, outbox):
         typ, data = conn.fetch(num, '(RFC822)')
         outbox.put((message_from_bytes(data[0][1]), num))
         inbox.task_done()
-        print('Completed 1')
+        print('.', end='')
 
 def get_emails(conn):
     mail_connection = conn
@@ -109,9 +115,10 @@ def get_emails(conn):
     )
     message_list = []
     append = message_list.append
-    print('Getting Messages... ', end='')
+    print('Searching messages... ', end='')
     if typ == 'OK' and messages[0]:
-        print('Got messages!')
+        print('Got list of messages!')
+        print('Downloading messages -> ', end='')
         message_queue = Queue()
         finished_queue = Queue()
         for x in range(10):
@@ -121,31 +128,60 @@ def get_emails(conn):
         
         for index, num in enumerate(messages[0].split()):
             message_queue.put(num)
-        message_queue.join()
 
-        message_list = []
-        while not finished_queue.empty():
-            message_list.append(finished_queue.get())
-            finished_queue.task_done()
+        message_queue.join()
+        print('\nFinished!')
+        print('\nSorting messages... ', end='')
+        message_list = list(finished_queue.queue)
+        print('Finished sorting messages!')
         return message_list
     else:
         print('No message response')
         return ['']
 
-def copy_emails(conn, msg_list):
-    mail_connection = conn
-    print('Logging in to server...')
-    mail_connection.login(email_add, password)
-    print('Log in OK!')
-    if 'Sorted' in mail_connection.list():
-        mail_connection.delete(mailbox)
-    mail_connection.create('Sorted')
-    mail_connection.select('INBOX')
-    for num in msg_list:
-        mail_connection.copy(num, 'Sorted')
+def copy_emails(conn, msg_list, sort_folder):
+    if search_mailboxes(conn, sort_folder):
+        print('Found existing mailbox, deleting... ', end='')
+        conn.delete(sort_folder)
+        print('Finished!')
+    print('Creating Sorted mailbox... ', end='')
+    conn.create(sort_folder)
     print('Finished!')
+    conn.select('INBOX')
+    print('Copying Emails -> ', end='')
+    for num in msg_list:
+        conn.copy(num, sort_folder)
+        print('.', end='')
+    print('\nFinished!')
 
-def process_message(message_info):
+def move_emails(conn, msg_list, sort_folder):
+    if search_mailboxes(conn, sort_folder):
+        print('Found existing \'Sorted\', deleting... ', end='')
+        conn.delete(sort_folder)
+        print('Finished!')
+    print('Creating Sorted mailbox... ', end='')
+    conn.create(sort_folder)
+    print('Finished!')
+    conn.select('INBOX')
+    print('Moving Emails -> ', end='')
+    for num in msg_list:
+        conn.copy(num, sort_folder)
+        conn.store(num, '+FLAGS', '\\Deleted')
+        print('.', end='')
+    conn.expunge()
+    print('\nFinished!')
+
+def search_mailboxes(conn, sort_folder):
+    status, response = conn.list()
+    if status == 'OK':
+        for item in response:
+            stritem = item.decode('utf-8')
+            if sort_folder in stritem:
+                return True
+
+    return False
+
+def process_message(message_info, search_list):
     html_parser = EmailHTMLParser()
     message = message_info[0]
     num = message_info[1]
@@ -158,8 +194,7 @@ def process_message(message_info):
     }
     for part in message.walk():
         if part.get_content_maintype() == 'text' and part.get_content_subtype() == 'html':
-            if ratio_is_match(get_words(part, html_parser), ['Leo', 'Qi']):
-            #if specific_match(parse_html(part), ['dropbox']):
+            if ratio_is_match(get_words(part, html_parser), search_list):
                 return num
     return False
 
@@ -168,43 +203,71 @@ def main():
     connection = EmailConnection()
     mail_connection = connection.conn
     print('Connected!')
-    start = time()
     count = 0
+    yes_count = 0
+    no_count = 0
+    searches = input('Enter comma-separated search terms: ').strip().lower().split(',')
+    print('Searching for terms:')
+    print('====================')
+    for search in searches:
+        print(search)
+    
+    start = time()
     messages = get_emails(mail_connection)
     if messages:
+        print('Processing messages -> ', end='')
         copy_list = []
+        process_message_searches = partial(process_message, search_list=searches)
         with Pool(processes=20) as pool:
-            for i in pool.imap_unordered(process_message, messages, 1):
-                print(i)
+             for i in pool.imap_unordered(process_message_searches, messages, 20):
                 count += 1
                 if i != False:
                     copy_list.append(i)
+                    print('O', end='')
+                    yes_count += 1
+                else:
+                    print('X', end='')
+                    no_count += 1
 
+        try:
+            percent = no_count / yes_count
+        except ZeroDivisionError:
+            percent = 0
         end = time()
-        print('Finished Processing ALL ************')
+        print('\n********** Finished processing emails **********')
         print(f'Processed {count} messages in {end - start}s')
-        #copy_emails(mail_connection, copy_list)
+        print(f'{percent}% ({yes_count}/{yes_count + no_count})of messages match')
+        if len(copy_list) > 0:
+            method = ''
+            while method not in ('c', 'm', 'd'):
+                method = input('Enter whether to copy, move or display: (C, M, D): ').strip().lower()
+            print(f'Method: {method}')
+            
+            if method == 'c' or method == 'm':
+                store_folder = input('Enter storage folder: ').strip()
+                store_folder = "".join(store_folder.split())
+                if method == 'c':
+                    copy_emails(mail_connection, copy_list, store_folder)
+                elif method == 'm':
+                    move_emails(mail_connection, copy_list, store_folder)
+            elif method == 'd':
+                print(copy_list)
+        else:
+            print('No messages fetched...')
+
+        print('Finished all operations for this thread')
+        del connection      
     else:
         print('No messages')
-
+    
 if __name__ == '__main__':
-    messages = main()
-
-## ------ Other Stuff ------ ##
-##def fetch_one(val):
-##    num = val[1]
-##    conn = open_conn(
-##        getenv('USER_EMAIL'),
-##        getenv('USER_PASSWORD'),
-##        getenv('IMAP_SERVER'),
-##        getenv('PORT')
-##    )
-##    conn.select('INBOX')
-##    typ, data = conn.fetch(num, '(RFC822)')
-##    conn.close()
-##    conn.logout()
-##    return (message_from_bytes(data[0][1]), num)
-##
-##mail_connection.copy(num, 'Sorted') # was here
-###changes status
-##typ, data = mail_connection.store(num, '+FLAGS', '\\Seen')
+    while True:
+        response = ''
+        while response not in ('y', 'n'):
+            response = input('Start a new session? (Y/N): ').strip().lower()
+        if response == 'y':
+            print('OK! Starting new session...')
+            main()
+        else:
+            print('Shutting down...')
+            break
