@@ -6,16 +6,20 @@ from threading import Thread
 from dotenv import load_dotenv
 
 class EmailConnection():
-    """
-    Defines an email connection to our IMAP server.
-    Requires a valid dotenv file to be present.
-    Be sure to delete the object afterwards to log out of the server.
-    """
-    def __init__(self):
+    def __init__(self, print_func=None):
+        """
+        Defines an email connection to our IMAP server.
+        Requires a valid dotenv file to be present.
+        Be sure to delete the object afterwards to log out of the server.
+
+        Keyword arguments
+        print_func -- An Application() class's put_msg function
+        """
         self.get_config()
         self.conn = IMAP4_SSL(self.imap, self.port)
         self.conn.login(self.email, self.pswrd)
-
+        self.print = print_func
+        
     def __del__(self):
         try:
             self.conn.close()
@@ -39,61 +43,63 @@ class EmailConnection():
                 'PORT: the port of the imap server. Usually 993.\n'
             )
 
-    def copy_emails(self, msg_list, sort_folder):
-        if self.search_mailboxes(sort_folder):
-            print('Found existing mailbox, deleting... ', end='')
-            self.conn.delete(sort_folder)
-            print('Finished!')
-        print(f'Creating mailbox {sort_folder} ... ', end='')
-        self.conn.create(sort_folder)
-        print('Finished!')
-        self.conn.select('INBOX')
-        print('Copying Emails -> ', end='')
-        for num in msg_list:
-            self.conn.copy(num, sort_folder)
-            print('.', end='')
-        print('\nFinished!')
+        def copy_emails(self, msg_list, sort_folder):
+            if self.search_mailboxes(sort_folder):
+                self.print('Found existing mailbox, deleting... ')
+                self.conn.delete(sort_folder)
+                self.print('Finished!')
+            self.print(f'Creating mailbox {sort_folder} ... ')
+            self.conn.create(sort_folder)
+            self.print('Finished!')
+            self.conn.select('INBOX')
+            self.print('Copying Emails -> ')
+            for num in msg_list:
+                self.conn.copy(num, sort_folder)
+                self.print('.')
+            self.print('\nFinished!')
 
-    def move_emails(self, msg_list, sort_folder):
-        if self.search_mailboxes(sort_folder):
-            print('Found existing mailbox, deleting... ', end='')
-            self.conn.delete(sort_folder)
-            print('Finished!')
-        print(f'Creating mailbox {sort_folder} ... ', end='')
-        self.conn.create(sort_folder)
-        print('Finished!')
-        self.conn.select('INBOX')
-        print('Moving Emails -> ', end='')
-        for num in msg_list:
-            self.conn.copy(num, sort_folder)
-            self.conn.store(num, '+FLAGS', '\\Deleted')
-            print('.', end='')
-        self.conn.expunge()
-        print('\nFinished!')
+        def move_emails(self, msg_list, sort_folder):
+            if self.search_mailboxes(sort_folder):
+                self.print('Found existing mailbox, deleting... ')
+                self.conn.delete(sort_folder)
+                self.print('Finished!')
+            self.print(f'Creating mailbox {sort_folder} ... ')
+            self.conn.create(sort_folder)
+            self.print('Finished!')
+            self.conn.select('INBOX')
+            self.print('Moving Emails -> ')
+            for num in msg_list:
+                self.conn.copy(num, sort_folder)
+                self.conn.store(num, '+FLAGS', '\\Deleted')
+                self.print('.')
+            self.conn.expunge()
+            self.print('\nFinished!')
 
-    def search_mailboxes(self, sort_folder):
-        status, response = self.conn.list()
-        if status == 'OK':
-            for item in response:
-                stritem = item.decode('utf-8')
-                if sort_folder in stritem:
-                    return True
-        return False
+        def search_mailboxes(self, sort_folder):
+            status, response = self.conn.list()
+            if status == 'OK':
+                for item in response:
+                    stritem = item.decode('utf-8')
+                    if sort_folder in stritem:
+                        return True
+            return False
 ## End class EmailConnection ##
 
 class EmailGetter:
-    def __init__(self, conn, threads):
+    def __init__(self, conn, threads, print_func):
         """
         Keyword arguments:
         conn -- An EmailConnection connection (EmailConnection.conn)
         threads -- An integer representing the amount of threads to spawn
+        print_func -- An Application() class's put_msg function
         """
         self.active = True
         self.conn = conn
         self.message_queue = Queue()
         self.finished_queue = Queue()
         self.workers = []
-
+        self.print = print_func
+        self.print('Creating threads...')
         for x in range(threads):
             self.workers.append(Thread(target=self.fetch))
             self.workers[-1].setDaemon(True)
@@ -105,29 +111,29 @@ class EmailGetter:
         self.active = False
 
     def get_emails(self):
-        print(
+        self.print(
             'There are '
             + str(self.conn.select('INBOX')[1])
             + ' messages in INBOX'
         )
         self.conn.select('INBOX')
         typ, messages = self.conn.search(None, 'ALL')
-        print('Searching messages... ', end='')
+        self.print('Searching messages... ')
         if typ == 'OK' and messages[0]:
-            print('Got list of messages!')
-            print('Downloading messages -> ', end='')
+            self.print('Got list of messages!')
+            self.print('Downloading messages -> ')
 
             for index, num in enumerate(messages[0].split()):
                 self.message_queue.put(num)
 
             self.message_queue.join()
-            print('\nFinished!')
-            print('\nSorting messages... ', end='')
+            self.print('\nFinished!')
+            self.print('\nSorting messages... ')
             msg_list = list(self.finished_queue.queue)
-            print('Finished sorting messages!')
+            self.print('Finished sorting messages!')
             return msg_list
         else:
-            print('No message response')
+            self.print('No message response')
             return ['']
 
     def fetch(self):
@@ -141,9 +147,10 @@ class EmailGetter:
         while self.active:
             msg_num = self.message_queue.get()
             status, data = conn.fetch(msg_num, '(RFC822)')
-            self.finished_queue.put((message_from_bytes(data[0][1]), msg_num))
+            message = message_from_bytes(data[0][1])
+            self.finished_queue.put((message, msg_num))
             self.message_queue.task_done()
-            print('.', end='')
+            self.print('.')
         return True
 
     def get_subjects(self, num_list):
