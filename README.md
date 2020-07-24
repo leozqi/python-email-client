@@ -100,3 +100,9 @@ Simpledialog constructors
 
 What we're working on:
     FINDING WHY GET_EMAILS() HANGS. MUST BE BECAUSE OF THREADS, BUT WE MUST BE ABLE TO CONTROL THOSE THREADS
+
+## Distributed Storage
+
+The resources folder will have several files representing each and every email file stored. Each email will be stored in a file for easy access. This data serialization will be done with **CPickle**
+
+An optional additional thing we can do here is to add a search folder inside the resources folder. This folder should contain folders containing the cache of previous searches for easy access.
