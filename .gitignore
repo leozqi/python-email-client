@@ -1,4 +1,5 @@
 *.env
 *.txt
 *.pyc
-__pycache__/**
+python_email_client/__pycache__/
+python_email_client/resources/**
