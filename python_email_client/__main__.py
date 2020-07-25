@@ -11,7 +11,7 @@ from parser import *
 from database import *
 from datetime import datetime
 
-VERSION = '0.0.2'
+VERSION = '0.0.3'
 
 # Todo: Add way to communicate straight to download interface.
 
@@ -20,11 +20,12 @@ class Application():
         # Application objects
         self.tasks = []
         self.log = Queue()
+        self.bar_log = Queue()
         self.email_app = None # EmailConnection()
         self.email_get = None # EmailGetter()
         self.emails = None # Email list
 
-        self.database = EmailDatabase(self.put_msg)
+        self.database = EmailDatabase(self.put_msg, self.add_bar, self.reset_bar)
 
         # Arrange the basics of window
         self.root = tk.Tk()
@@ -53,42 +54,27 @@ class Application():
             self.root, textvariable=self.status,
             style='Status.TLabel'
         )
-        self.statuslabel.grid(row=2,column=1, columnspan=2, sticky='SEW')
-        self.progressbar = ttk.Progressbar(self.root, orient=tk.HORIZONTAL, length=100, mode='determinate')
-        self.progressbar.grid(row=2, column=3, sticky='SEW')
+        self.statuslabel.grid(row=2,column=1, sticky='SEW')
+        self.progressbar = ttk.Progressbar(self.root, orient=tk.HORIZONTAL, length=150, mode='determinate', maximum=100)
+        self.progressbar.grid(row=2, column=2, sticky='SEW')
+
         # Setup menu bar
         self.menubar = tk.Menu(self.root)
+        self.menubar.add_command(label='Get Mail!', command=self.conv_mail)
 
-        # Email menu
-        self.emailmenu = tk.Menu(self.menubar, tearoff=0)
-        self.emailmenu.add_command(
-            label='Connect', 
-            command=self.connect
-        )
-        self.emailmenu.add_command(
-            label='Download all', 
-            command=self.pre_get_mail
-        )
-        self.emailmenu.add_command(
-            label='Save emails in database',
-            command=self.save_mail_wrapper
-        )
-        self.emailmenu.add_command(
-            label='Load emails in database',
-            command=self.load_mail_wrapper
-        )
-        self.emailmenu.add_command(
-            label='Reset Database',
-            command=self.database.reset_db
-        )
+        # Advanced menu
+        self.advmenu = tk.Menu(self.menubar, tearoff=0)
+        self.advmenu.add_command(label='Connect', command=self.connect)
+        self.advmenu.add_command(label='Download all', command=self.pre_get_mail)
+        self.advmenu.add_command(label='Save emails in database', command=self.save_mail_wrapper)
+        self.advmenu.add_command(label='Load emails in database', command=self.load_mail_wrapper)
+        self.advmenu.add_command(label='Reset Database', command=self.database.reset_db)
 
         # Help Menu
         self.helpmenu = tk.Menu(self.menubar, tearoff=0)
-        self.helpmenu.add_command(
-            label='About', 
-            command=self.about
-        )
-        self.menubar.add_cascade(label='Email', menu=self.emailmenu)
+        self.helpmenu.add_command(label='About', command=self.about)
+
+        self.menubar.add_cascade(label='Advanced', menu=self.advmenu)
         self.menubar.add_cascade(label='Help', menu=self.helpmenu)
         self.root.config(menu=self.menubar)
 
@@ -119,8 +105,6 @@ class Application():
         self.pDownloadVal.set('Idle')
         self.pDLabel = ttk.Label(self.pDownload, textvariable=self.pDownloadVal)
         self.pDLabel.pack(fill=tk.X)
-        #self.pDProgress = ttk.Progressbar(self.pDownload, orient=tk.HORIZONTAL, length=100, mode='determinate')
-        #self.pDProgress.pack(fill=tk.X)
 
         # Setup search interface
         self.pSearch = ttk.Labelframe(self.pActions, text='Search', width=200, height=200)
@@ -179,9 +163,10 @@ class Application():
             self.pre_get_mail()
 
     def get_mail(self, threads):
-        self.email_get = EmailGetter(self.email_app.conn, threads, self.put_msg)
+        self.email_get = EmailGetter(self.email_app.conn, threads, self.put_msg, self.add_bar)
         self.email_get.get_emails_online(threads)
         self.emails = self.email_get.emails
+        self.reset_bar()
 
     def load_mail_wrapper(self):
         self.tasks.append(Thread(target=self._load_mail))
@@ -197,23 +182,49 @@ class Application():
         else:
             self.put_msg('No emails to save...')
 
+    def conv_mail(self): # convienence class for user
+        pass
+
     def put_msg(self, msg):
         """
         Put a message into the queue to be displayed by the status bar
-
         Keyword arguments:
         msg -- A string displayed in the status bar
         """
         self.log.put(msg)
 
+    def add_bar(self, amt):
+        """
+        Add to the progress bar an amount
+        Keyword arguments:
+        amt -- Amount to add
+        """
+        self.bar_log.put(amt)
+
+    def reset_bar(self):
+        if not self.bar_log.empty():
+            while not self.bar_log.empty():
+                get = self.bar_log.get()
+                self.bar_log.task_done()
+        self.progressbar['value'] = 0
+        self.root.update_idletasks()
+
     def update_status(self):
         """
-        Updates the status bar. Do not touch.
+        Refreshes self.root with status of varios infos
         """   
         if not self.log.empty():
             self.status.set(self.log.get())
             self.log.task_done()
-        self.root.after(50, self.update_status)
+        
+        if not self.bar_log.empty():
+            add_val = self.bar_log.get()
+            if self.progressbar['value'] + add_val <= 100:
+                self.progressbar['value'] += add_val
+            self.bar_log.task_done()
+        
+        self.root.update_idletasks()
+        self.root.after(20, self.update_status)
 
 if __name__ == '__main__':
     app=Application()
