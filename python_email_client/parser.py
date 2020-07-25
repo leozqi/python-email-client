@@ -36,6 +36,16 @@ def get_words(part, html_parser):
     returnData = list(dict.fromkeys(returnData))
     return returnData
 
+def get_words_txt(part):
+    txt = ''
+    if part is not None:
+        txt = part.get_payload()
+    else:
+        return []
+    data = txt.strip().lower().split()
+    data = [ x.strip() for x in data if x.isspace() != True ]
+    return data
+
 def specific_match(termList, matchList):
     for term in termList:
         for search in matchList:  
@@ -69,7 +79,11 @@ def process_message(message_info, subject, to_ln, from_ln, search_list):
         return num
     
     for part in message.walk():
-        if part.get_content_maintype() == 'text' and part.get_content_subtype() == 'html':
-            if ratio_is_match(get_words(part, html_parser), search_list):
-                return num
+        if part.get_content_maintype() == 'text':
+            if part.get_content_subtype() == 'html':
+                if ratio_is_match(get_words(part, html_parser), search_list):
+                    return num
+            elif part.get_content_subtype() == 'plain':
+                if ratio_is_match(get_words_txt(part), search_list):
+                    return num
     return False
