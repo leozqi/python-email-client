@@ -58,25 +58,7 @@ class Application():
         self.progressbar = ttk.Progressbar(self.root, orient=tk.HORIZONTAL, length=150, mode='determinate', maximum=100)
         self.progressbar.grid(row=2, column=2, sticky='SEW')
 
-        # Setup menu bar
-        self.menubar = tk.Menu(self.root)
-        self.menubar.add_command(label='Get Mail!', command=self.conv_mail)
-
-        # Advanced menu
-        self.advmenu = tk.Menu(self.menubar, tearoff=0)
-        self.advmenu.add_command(label='Connect', command=self.connect)
-        self.advmenu.add_command(label='Download all', command=self.pre_get_mail)
-        self.advmenu.add_command(label='Save emails in database', command=self.save_mail_wrapper)
-        self.advmenu.add_command(label='Load emails in database', command=self.load_mail_wrapper)
-        self.advmenu.add_command(label='Reset Database', command=self.database.reset_db)
-
-        # Help Menu
-        self.helpmenu = tk.Menu(self.menubar, tearoff=0)
-        self.helpmenu.add_command(label='About', command=self.about)
-
-        self.menubar.add_cascade(label='Advanced', menu=self.advmenu)
-        self.menubar.add_cascade(label='Help', menu=self.helpmenu)
-        self.root.config(menu=self.menubar)
+        self.create_menu()
 
         # Configure root grid for even spacing
         self.root.grid_columnconfigure(1, weight=1)
@@ -93,28 +75,45 @@ class Application():
     def create_pane(self):
         # Setup paned window
         self.pActions = ttk.Panedwindow(self.root, orient=tk.VERTICAL)
-        
         # Setup connection interface
         self.pConnect = ttk.Labelframe(self.pActions, text='Connect', width=200, height=200)
-        
         # Setup download interface
         self.pDownload = ttk.Labelframe(self.pActions, text='Download', width=200, height=200)
-        self.pDButton = ttk.Button(self.pDownload, text='Download all email into database', command=self.pre_get_mail)
+        self.pDButton = ttk.Button(self.pDownload, text='Download all email into database', command=self.get_mail_wrapper)
         self.pDButton.pack(fill=tk.X)
         self.pDownloadVal = tk.StringVar()
         self.pDownloadVal.set('Idle')
         self.pDLabel = ttk.Label(self.pDownload, textvariable=self.pDownloadVal)
         self.pDLabel.pack(fill=tk.X)
-
         # Setup search interface
         self.pSearch = ttk.Labelframe(self.pActions, text='Search', width=200, height=200)
-
         # Configure paned window
         self.pActions.add(self.pConnect)
         self.pActions.add(self.pDownload)
         self.pActions.add(self.pSearch)
         self.pActions.grid(row=1, column=1, sticky='NSEW')
-    
+
+    def create_menu(self):
+        # Setup menu bar
+        self.menubar = tk.Menu(self.root)
+        self.menubar.add_command(label='Get Mail!', command=self.conv_mail_wrapper)
+
+        # Advanced menu
+        self.advmenu = tk.Menu(self.menubar, tearoff=0)
+        self.advmenu.add_command(label='Connect', command=self.connect)
+        self.advmenu.add_command(label='Download all', command=self.get_mail_wrapper)
+        self.advmenu.add_command(label='Save emails in database', command=self.save_mail_wrapper)
+        self.advmenu.add_command(label='Load emails in database', command=self.load_mail_wrapper)
+        self.advmenu.add_command(label='Reset Database', command=self.database.reset_db)
+
+        # Help Menu
+        self.helpmenu = tk.Menu(self.menubar, tearoff=0)
+        self.helpmenu.add_command(label='About', command=self.about)
+
+        self.menubar.add_cascade(label='Advanced', menu=self.advmenu)
+        self.menubar.add_cascade(label='Help', menu=self.helpmenu)
+        self.root.config(menu=self.menubar)
+
     def close(self):
         for task in self.tasks:
             if task.is_alive():
@@ -139,20 +138,22 @@ class Application():
         else:
             self.log.put('Already connected!')
     
-    def pre_get_mail(self):
+    def get_mail_wrapper(self, threads=None):
         if self.email_app != None:
             if self.email_get == None:
                 self.put_msg('Getting messages')
-                TITLE = 'Get Messages'
-                threads = tk.simpledialog.askinteger(
-                    TITLE, 'Enter amount of threads for search (Min 1, Max 10)', 
-                    minvalue=1, maxvalue=10
-                )
                 if threads == None:
-                    self.put_msg('Cancelled.')
-                    return False
-            
-                self.tasks.append(Thread(target=self.get_mail, args=(threads,)))
+                    l_threads = tk.simpledialog.askinteger(
+                        'Get messages', 'Enter amount of threads for search (Min 1, Max 10)', 
+                        minvalue=1, maxvalue=10
+                    )
+                    if l_threads == None:
+                        self.put_msg('Cancelled.')
+                        return False
+                else:
+                    l_threads = threads
+
+                self.tasks.append(Thread(target=self.get_mail, args=(l_threads,)))
                 self.tasks[-1].start()
                 return True
             else:
@@ -160,12 +161,11 @@ class Application():
         else:
             self.put_msg('You must connect to the server first. Connecting...')
             self.connect()
-            self.pre_get_mail()
+            self.get_mail_wrapper()
 
     def get_mail(self, threads):
         self.email_get = EmailGetter(self.email_app.conn, threads, self.put_msg, self.add_bar)
-        self.email_get.get_emails_online(threads)
-        self.emails = self.email_get.emails
+        self.email_get.get_emails_online(threads, self.database.get_datestr())
         self.reset_bar()
 
     def load_mail_wrapper(self):
@@ -175,15 +175,36 @@ class Application():
     def _load_mail(self):
         self.emails = self.database.load_emails()
 
-    def save_mail_wrapper(self):
-        if self.emails != None:
-            self.tasks.append(Thread(target=self.database.save_emails, args=(self.emails,)))
+    def save_mail_wrapper(self, emails=None):
+        if emails != None:
+            self.tasks.append(Thread(target=self.database.save_emails, args=(emails,)))
             self.tasks[-1].start()
         else:
-            self.put_msg('No emails to save...')
+            if self.emails != None:
+                self.tasks.append(Thread(target=self.database.save_emails, args=(emails,)))
+                self.tasks[-1].start()
+            else:
+                self.put_msg('No emails to save...')
+
+    def conv_mail_wrapper(self):
+        self.tasks.append(Thread(target=self.conv_mail))
+        self.tasks[-1].start()
 
     def conv_mail(self): # convienence class for user
-        pass
+        # Connect
+        self.connect()
+
+        # Get mail
+        self.get_mail_wrapper(threads=10)
+        self.tasks[-1].join()
+
+        self.save_mail_wrapper(self.email_get.emails)
+        self.tasks[-1].join()
+
+        self.load_mail_wrapper()
+        self.tasks[-1].join()
+
+        self.database.save_last_date(datetime.now())
 
     def put_msg(self, msg):
         """
