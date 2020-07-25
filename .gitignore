@@ -3,3 +3,4 @@
 *.pyc
 python_email_client/__pycache__/
 python_email_client/resources/**
+.vscode/
