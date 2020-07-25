@@ -106,7 +106,7 @@ class EmailGetter:
     def __del__(self):
         self.active = False
 
-    def get_emails_online(self, threads):
+    def get_emails_online(self, threads, since):
         self.print('Creating threads...')
         msg_amt = int(self.conn.select('INBOX')[1][0].decode('utf-8'))
         self.print(
@@ -117,7 +117,18 @@ class EmailGetter:
         msg_bar = 100 / msg_amt
         
         self.conn.select('INBOX')
-        typ, messages = self.conn.search(None, 'ALL')
+
+        # Search code
+        last_date = since
+        search_str = ''
+        if last_date == None:
+            search_str = 'ALL'
+        else:
+            search_str = f'(SINCE "{last_date}")'
+        typ, messages = self.conn.search(
+            None, 
+            search_str
+        )
         self.print('Searching messages... ')
         if typ == 'OK' and messages[0]:
             for x in range(threads):
