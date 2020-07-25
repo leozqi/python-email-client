@@ -5,14 +5,19 @@ import os
 import pickle
 import utils
 import sqlite3
+import shutil
+import stat
 
 class EmailDatabase():
-    def __init__(self, print_func=None):
+    def __init__(self, print_func=None, bar_func=None, bar_clear=None):
         self.system_path = sys.path[0]
+        self.resource_path = os.path.join(self.system_path, 'resources/')
         self.save_path = os.path.join(self.system_path, 'resources/saved/')
         self.database_path = os.path.join(self.system_path, 'resources/manager.db')
         self.manager = None # sqlite3 db connection
         self.print = print_func
+        self.bar = bar_func
+        self.bar_clear = bar_clear
         self.load_db()
 
     def load_db(self):
@@ -37,6 +42,10 @@ class EmailDatabase():
         self.print('Resetting...')
         self.manager = None
         os.remove(self.database_path)
+        shutil.rmtree(self.save_path)
+        os.chmod(self.resource_path, stat.S_IWUSR)
+        os.mkdir(self.save_path)
+        os.chmod(self.save_path, stat.S_IWUSR)
         self.print('Resetted database.')
     
     def save_emails(self, email_list):
@@ -54,6 +63,7 @@ class EmailDatabase():
         
         self.print('Saving emails...')
         counter = 1
+        email_amt = 100 / len(email_list)
         for email in email_list:
             self.print(f'Saving email {counter}...')
             self.manager.execute(
@@ -72,8 +82,12 @@ class EmailDatabase():
             with open(os.path.join(self.save_path, "".join(((str(file_id[0])), '.pkl'))), 'wb') as out:
                 pickle.dump(email, out, pickle.HIGHEST_PROTOCOL)
             counter += 1
+            if self.bar != None:
+                self.bar(email_amt)
 
         self.print('Finished')
+        if self.bar_clear != None:
+            self.bar_clear()
         return True
     
     def load_emails(self):
@@ -86,16 +100,36 @@ class EmailDatabase():
         email_refs = self.manager.execute(
             'SELECT id FROM emails'
         ).fetchall()
-
+        email_amt = 100 / len(email_refs)
         if len(email_refs) > 0:
-            self.print(f'Getting email {counter}...')
             email_list = []
+            directory_corrupt = False
             for ref in email_refs:
-                self.print
-                with open(os.path.join(self.save_path, "".join((str(ref), '.pkl'))), 'rb') as f:
-                    email_list.append(pickle.load(f))
+                self.print(f'Getting email {counter}...')
+                try:
+                    with open(os.path.join(self.save_path, "".join((str(ref[0]), '.pkl'))), 'rb') as f:
+                        email_list.append(pickle.load(f))
+                except FileNotFoundError:
+                    directory_corrupt = True
+                    break
                 counter += 1
+                if self.bar != None:
+                    self.bar(email_amt)
+
+            if directory_corrupt:
+                self.print('Loading database failed... corrupt elements.')
+                self.print('Deleting existing database...')
+                self.reset_db()
+                self.print('Finished.')
+
+                if self.bar_clear != None:
+                    self.bar_clear()
+                return []
+
             self.print('Finished.')
+            if self.bar_clear != None:
+                self.bar_clear()
             return email_list
+
         self.print('No emails present.')
         return []
