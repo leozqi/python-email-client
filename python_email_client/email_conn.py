@@ -73,7 +73,7 @@ class EmailConnection():
             self.conn.store(num, '+FLAGS', '\\Deleted')
             self.print('.')
         self.conn.expunge()
-        self.print('\nFinished!')
+        self.print('Finished!')
 
     def search_mailboxes(self, sort_folder):
         status, response = self.conn.list()
@@ -86,12 +86,13 @@ class EmailConnection():
 ## End class EmailConnection ##
 
 class EmailGetter:
-    def __init__(self, conn, threads, print_func):
+    def __init__(self, conn, threads, print_func, bar_func=None):
         """
         Keyword arguments:
         conn -- An EmailConnection connection (EmailConnection.conn)
         threads -- An integer representing the amount of threads to spawn
         print_func -- An Application() class's put_msg function
+        bar_func -- An Application() class's add_bar function
         """
         self.active = True
         self.conn = conn
@@ -99,7 +100,7 @@ class EmailGetter:
         self.finished_queue = Queue()
         self.workers = []
         self.print = print_func
-        
+        self.bar = bar_func
         self.emails = None
 
     def __del__(self):
@@ -107,29 +108,37 @@ class EmailGetter:
 
     def get_emails_online(self, threads):
         self.print('Creating threads...')
-        for x in range(threads):
-            self.workers.append(Thread(target=self.fetch))
-            self.workers[-1].setDaemon(True)
-            self.workers[-1].start()
-
+        msg_amt = int(self.conn.select('INBOX')[1][0].decode('utf-8'))
         self.print(
             'There are '
-            + str(self.conn.select('INBOX')[1])
+            + str(msg_amt)
             + ' messages in INBOX'
         )
+        msg_bar = 100 / msg_amt
+        
         self.conn.select('INBOX')
         typ, messages = self.conn.search(None, 'ALL')
         self.print('Searching messages... ')
         if typ == 'OK' and messages[0]:
+            for x in range(threads):
+                self.workers.append(Thread(target=self.fetch, args=(msg_bar,)))
+                self.workers[-1].setDaemon(True)
+                self.workers[-1].start()
+
             self.print('Got list of messages!')
             self.print('Downloading messages -> ')
-
             for index, num in enumerate(messages[0].split()):
                 self.message_queue.put(num)
 
             self.message_queue.join()
-            self.print('\nFinished!')
-            self.print('\nSorting messages... ')
+            self.print('Finished!')
+            self.print('Shutting down threads...')
+            for worker in self.workers:
+                self.message_queue.put(None)
+            
+            self.message_queue.join()
+            self.print('Threads finished.')
+            self.print('Sorting messages... ')
             msg_list = list(self.finished_queue.queue)
             self.print('Finished sorting messages!')
             self.active = False
@@ -138,7 +147,12 @@ class EmailGetter:
             self.print('No message response')
             self.emails = []
 
-    def fetch(self):
+    def fetch(self, inc_amt):
+        """
+        Keyword arguments:
+        inc_amt -- the amount that progress bar should 
+                   increment for message proccessed.
+        """
         email = EmailConnection()
         conn = email.conn
         try:
@@ -148,11 +162,16 @@ class EmailGetter:
         
         while self.active:
             msg_num = self.message_queue.get()
+            if msg_num == None:
+                self.message_queue.task_done()
+                return True
             status, data = conn.fetch(msg_num, '(RFC822)')
             message = message_from_bytes(data[0][1])
             self.finished_queue.put((message, msg_num))
             self.message_queue.task_done()
             self.print(f'Got message {msg_num}')
+            if self.bar != None:
+                self.bar(inc_amt)
         return True
 
     def get_subjects(self, num_list):
