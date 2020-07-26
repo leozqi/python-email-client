@@ -11,6 +11,7 @@ from datetime import datetime
 
 class EmailDatabase():
     def __init__(self, print_func=None, bar_func=None, bar_clear=None):
+        # Different paths
         self.system_path = sys.path[0]
         self.resource_path = os.path.join(self.system_path, 'resources/')
         if not os.path.exists(self.resource_path):
@@ -22,13 +23,12 @@ class EmailDatabase():
 
         self.database_path = os.path.join(self.resource_path, 'manager.db')
         self.data_path = os.path.join(self.resource_path, 'data.pkl')
+        # Functions and DB objects
         self.manager = None # sqlite3 db connection
-        # Print and bar functions
         self.print = print_func
         self.bar = bar_func
         self.bar_clear = bar_clear
-        # DB objects
-        self.load_db()
+        self.load_db()      # loads db
         self.last_date = self._load_last_date()
 
     def load_db(self):
@@ -85,7 +85,7 @@ class EmailDatabase():
             return None
         else:
             return self.last_date.strftime('%d-%b-%Y')
-    
+
     def save_emails(self, email_list):
         """
         Keyword arguments:
@@ -95,12 +95,11 @@ class EmailDatabase():
         if self.manager == None:
             self.print('Loading Database...')
             self.load_db()
-        
+
         self.print('Saving emails...')
         if len(email_list) == 0:
             self.print('No emails provided.')
             return False
-        
         counter = 1
         email_amt = 100 / len(email_list)
         for email in email_list:
@@ -111,22 +110,37 @@ class EmailDatabase():
             to_line = email[0].get('To')
             from_line = email[0].get('From')
 
+            if (not (isinstance(subject, str) 
+                    and isinstance(date, datetime) 
+                    and isinstance(to_line, str) 
+                    and isinstance(from_line, str))):
+                # Check if all inputs are correct
+                self.print('Aborting... connection error')
+                return False
+            
             exists = self.manager.execute(
                 'SELECT * FROM emails'
-                ' WHERE subject = ? AND created = ? AND to_address = ? AND from_address = ?',
+                ' WHERE subject = ? AND created = ?'
+                ' AND to_address = ? AND from_address = ?',
                 (subject, date, to_line, from_line)
             ).fetchone()
 
             if exists == None: # only get new emails
                 self.manager.execute(
-                    'INSERT INTO emails (subject, created, to_address, from_address) VALUES (?, ?, ?, ?)',
+                    'INSERT INTO emails'
+                    ' (subject, created, to_address, from_address)'
+                    ' VALUES (?, ?, ?, ?)',
                     (subject, date, to_line, from_line),
                 )
                 self.manager.commit()
                 file_id = self.manager.execute(
                     'SELECT last_insert_rowid() FROM emails'
                 ).fetchone()
-                with open(os.path.join(self.save_path, "".join(((str(file_id[0])), '.pkl'))), 'wb') as out:
+                file_path = os.path.join(
+                    self.save_path,
+                    "".join( (str(file_id[0]), '.pkl') )
+                )
+                with open(file_path, 'wb') as out:
                     pickle.dump(email, out, pickle.HIGHEST_PROTOCOL)
 
             counter += 1
@@ -148,9 +162,6 @@ class EmailDatabase():
         email_refs = self.manager.execute(
             'SELECT id FROM emails'
         ).fetchall()
-        if len(email_refs) == 0:
-            self.print('No emails in database.')
-            return False
         
         email_amt = 100 / len(email_refs)
         if len(email_refs) > 0:
@@ -158,8 +169,12 @@ class EmailDatabase():
             directory_corrupt = False
             for ref in email_refs:
                 self.print(f'Getting email {counter}...')
+                file_path = os.path.join(
+                    self.save_path,
+                    "".join( ( str(ref[0]), '.pkl' ) )
+                )
                 try:
-                    with open(os.path.join(self.save_path, "".join((str(ref[0]), '.pkl'))), 'rb') as f:
+                    with open(file_path, 'rb') as f:
                         email_list.append(pickle.load(f))
                 except FileNotFoundError:
                     directory_corrupt = True

@@ -154,9 +154,11 @@ class EmailGetter:
             self.print('Finished sorting messages!')
             self.active = False
             self.emails = msg_list
+            return True
         else:
             self.print('No message response')
             self.emails = []
+            return False
 
     def fetch(self, inc_amt):
         """
