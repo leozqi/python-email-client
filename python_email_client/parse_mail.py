@@ -24,7 +24,7 @@ def parse_html(part, html_parser):
             return ['']
     else:
         return ['']
-    data = [ x.strip().lower() for x in html_parser.data if x.isspace() != True ]
+    data = [x.strip().lower() for x in html_parser.data if x.isspace() != True]
     html_parser.clear_data()
     return data
 
@@ -86,4 +86,6 @@ def process_message(message_info, subject, to_ln, from_ln, search_list):
             elif part.get_content_subtype() == 'plain':
                 if ratio_is_match(get_words_txt(part), search_list):
                     return num
+
+    del html_parser
     return False
