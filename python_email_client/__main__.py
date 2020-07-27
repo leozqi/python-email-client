@@ -5,15 +5,14 @@ import tkinter as tk
 from tkinter import ttk
 import tkinter.messagebox
 import tkinter.simpledialog
-from threading import Thread
+import tkinter.scrolledtext
+from threading import Thread, active_count
 from email_conn import *
 import parse_mail
 from database import *
 from datetime import datetime
 
 VERSION = '0.0.3'
-
-# Todo: Add way to communicate straight to download interface.
 
 class Application():     
     def __init__(self):
@@ -26,12 +25,14 @@ class Application():
         self.emails = None      # Email list
         self.searched = None    # Searched list
 
-        self.database = EmailDatabase(self.put_msg, self.add_bar, self.reset_bar)
+        self.database = EmailDatabase(self.put_msg,
+                                      self.add_bar,
+                                      self.reset_bar)
 
         # Arrange the basics of window
         self.root = tk.Tk()
         self.root.geometry('1000x750')
-        self.root.title('PythonMail Client v.' + VERSION)
+        self.root.title(''.join( ('PythonMail Client v.', VERSION) ))
         self.root.iconbitmap('favicon.ico')
         self.root.protocol('WM_DELETE_WINDOW', self.close)
         self.style = ttk.Style()
@@ -40,32 +41,48 @@ class Application():
             relief=tk.SUNKEN,
             anchor=tk.W,
         )
+        self.fTop = tk.Frame(self.root)
+        self.fTop.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.fLeft = tk.Frame(self.fTop)
+        self.fLeft.pack(side=tk.LEFT, fill=tk.BOTH)
+        self.fRight = ttk.LabelFrame(self.fTop, text='Emails gathered:')
+        self.fRight.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.fBottom = tk.Frame(self.root, height=10)
+        self.fBottom.pack(side=tk.BOTTOM, fill=tk.X)
+
         self.create_pane()
 
         # setup email notebook
-        self.nEmails = ttk.Notebook(self.root)
-        self.nDefault = ttk.Frame(self.nEmails)
-        self.nEmails.add(self.nDefault, text='No emails yet: Use search to get some')
-        self.nEmails.grid(row=1, column=2, sticky='NSEW')
+        self.tabs = [] # Container for notebook
+        self.display_port = tk.Canvas(self.fRight, borderwidth=0)
+        self.display_frame = tk.Frame(self.display_port)
+        self.tab_scroll = tk.Scrollbar(self.fRight, orient=tk.HORIZONTAL,
+                                       command=self.display_port.xview)
+        self.tab_scroll.pack(fill=tk.X, side=tk.BOTTOM)
+
+        self.display_port.configure(xscrollcommand=self.tab_scroll.set)
+        self.display_port.pack(fill=tk.BOTH, side=tk.TOP, expand=True)
+        self.display_port.create_window((3,2), window=self.display_frame,
+                                        anchor='ne', tags='frame')
+        self.nEmails = ttk.Notebook(self.display_frame)
+        self.nEmails.pack(fill=tk.BOTH, side=tk.BOTTOM, expand=True, anchor='nw')
+       
+        self.display_frame.bind('<Configure>', self._frame_configure)
 
         # Setup status bar
         self.status = tk.StringVar()
         self.status.set('Not connected')
         self.statuslabel = ttk.Label(
-            self.root, textvariable=self.status,
-            style='Status.TLabel'
+            self.fBottom, textvariable=self.status,
+            style='Status.TLabel',
         )
-        self.statuslabel.grid(row=2,column=1, sticky='SEW')
-        self.progressbar = ttk.Progressbar(self.root, orient=tk.HORIZONTAL, length=150, mode='determinate', maximum=100)
-        self.progressbar.grid(row=2, column=2, sticky='SEW')
+        self.statuslabel.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.progressbar = ttk.Progressbar(self.fBottom, orient=tk.HORIZONTAL,
+                                           length=150, mode='determinate',
+                                           maximum=100)
+        self.progressbar.pack(side=tk.LEFT)
 
         self.create_menu()
-
-        # Configure root grid for even spacing
-        self.root.grid_columnconfigure(1, weight=1)
-        self.root.grid_columnconfigure(2, weight=10)
-        self.root.grid_rowconfigure(1, weight=2)
-        self.root.grid_rowconfigure(2, weight=1)
 
         # Updater
         self.tasks.append(Thread(target=self.update_status))
@@ -75,10 +92,10 @@ class Application():
 
     def create_pane(self):
         # Setup paned window
-        self.pActions = ttk.Panedwindow(self.root, orient=tk.VERTICAL)
+        self.pActions = ttk.Panedwindow(self.fLeft, orient=tk.VERTICAL)
+
         # Setup interface
-        self.pOverview = ttk.Labelframe(self.pActions, text='Overview', width=200, height=300)
-        
+        self.pOverview = ttk.Labelframe(self.pActions, text='Overview')
         self.pOLabelVal = tk.StringVar()
         self.pOLabelVal.set(
             f'PythonEmail Client version {VERSION}.'
@@ -88,24 +105,42 @@ class Application():
         self.pOLabel = ttk.Label(self.pOverview, textvariable=self.pOLabelVal)
         self.pOLabel.pack(fill=tk.X)
 
+        self.pOThreadNum = tk.StringVar()
+        self.pOThreadNum.set(str(active_count()))
+        self.pOThreadLabel = ttk.Label(self.pOverview,
+                                       textvariable=self.pOThreadNum)
+        self.pOThreadLabel.pack(fill=tk.X)
+
         # Setup search interface
-        self.pSearch = ttk.Labelframe(self.pActions, text='Search', width=200, height=300)
-        self.pSLabel = ttk.Label(self.pSearch, text='Enter comma separated tag values to search for:')
+        self.pSearch = ttk.Labelframe(self.pActions, text='Search')
+        self.pSLabel = ttk.Label(self.pSearch,
+                                 text='Enter comma separated tag '
+                                      'values to search for:')
         self.pSLabel.pack(fill=tk.X)
         self.pSEntry = ttk.Entry(self.pSearch)
         self.pSEntry.pack(fill=tk.X)
-        self.pSButton = ttk.Button(self.pSearch, text='Search!', command=self.search_wrapper)
+        self.pSButton = ttk.Button(self.pSearch, text='Search!',
+                                   command=self.search_wrapper)
         self.pSButton.pack(fill=tk.X)
 
         # Checkbuttons
         self.search_subject = tk.IntVar()
         self.search_to = tk.IntVar()
         self.search_from = tk.IntVar()
-        self.pSSearchSub = tk.Checkbutton(self.pSearch, text='Search subject lines?', variable=self.search_subject, onvalue=1, offvalue=0)
+        self.pSSearchSub = tk.Checkbutton(self.pSearch,
+                                          text='Search subject lines?',
+                                          variable=self.search_subject,
+                                          onvalue=1, offvalue=0)
         self.pSSearchSub.pack()
-        self.pSSearchTo = tk.Checkbutton(self.pSearch, text='Search "to" lines?', variable=self.search_to, onvalue=1, offvalue=0)
+        self.pSSearchTo = tk.Checkbutton(self.pSearch,
+                                         text='Search "to" lines?',
+                                         variable=self.search_to,
+                                         onvalue=1, offvalue=0)
         self.pSSearchTo.pack()
-        self.pSSearchFrom = tk.Checkbutton(self.pSearch, text='Search "from" lines?', variable=self.search_from, onvalue=1, offvalue=0)
+        self.pSSearchFrom = tk.Checkbutton(self.pSearch,
+                                           text='Search "from" lines?',
+                                           variable=self.search_from,
+                                           onvalue=1, offvalue=0)
         self.pSSearchFrom.pack()
 
         # Feedback
@@ -117,7 +152,7 @@ class Application():
         # Configure paned window
         self.pActions.add(self.pOverview)
         self.pActions.add(self.pSearch)
-        self.pActions.grid(row=1, column=1, sticky='NSEW')
+        self.pActions.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
 
     def create_menu(self):
         # Setup menu bar
@@ -145,15 +180,17 @@ class Application():
         self.menubar.add_cascade(label='Help', menu=self.helpmenu)
         self.root.config(menu=self.menubar)
 
+    def _frame_configure(self, event):
+        self.display_port.configure(scrollregion=self.display_port.bbox('all'))
+    
     def close(self):
         for task in self.tasks:
             if task.is_alive():
-                self.put_msg('Cannot close, task in progress')
+                error_msg = 'Cannot close, task in progress.'
+                self.put_msg(error_msg)
                 tk.messagebox.showwarning(
                     'Error',
-                    message='Cannot search: No emails.'
-                            'Use "Get Emails!" to get emails.'
-                )
+                    message=error_msg)
                 return False
         self.root.destroy()
 
@@ -161,8 +198,7 @@ class Application():
         tk.messagebox.showinfo(
             'About', 
             message='Made by Leo Qi!'
-                    '\nVersion: ' + VERSION
-        )
+                    '\nVersion: ' + VERSION)
 
     def connect(self):
         if self.email_app == None:
@@ -178,7 +214,8 @@ class Application():
                 self.put_msg('Getting messages')
                 if threads == None:
                     l_threads = tk.simpledialog.askinteger(
-                        'Get messages', 'Enter amount of threads for search (Min 1, Max 10)', 
+                        'Get messages',
+                        'Enter amount of threads for search (Min 1, Max 10)',
                         minvalue=1, maxvalue=10
                     )
                     if l_threads == None:
@@ -187,7 +224,8 @@ class Application():
                 else:
                     l_threads = threads
 
-                self.tasks.append(Thread(target=self.get_mail, args=(l_threads,)))
+                self.tasks.append(Thread(target=self.get_mail,
+                                  args=(l_threads,)))
                 self.tasks[-1].start()
                 return True
             else:
@@ -265,15 +303,17 @@ class Application():
         self.root.update_idletasks()
 
         if self.emails == None:
+            error_msg = 'Cannot search: No emails. Use "Get Emails!" to get emails.'
             tk.messagebox.showwarning(
-                'Error', 
-                message='Cannot search: No emails. Use "Get Emails!" to get emails.'
+                'Error',
+                message=error_msg
             )
-            self.put_msg('Cannot search: No emails. Use "Get Emails!" to get emails.')
+            self.put_msg(error_msg)
             self.pSEntry.delete(0, tk.END)
             return False
-        
-        self.tasks.append(Thread(target=self._search, args=(subject, to_ln, from_ln, search_terms)))
+
+        self.tasks.append(Thread(target=self._search,
+                          args=(subject, to_ln, from_ln, search_terms)))
         self.tasks[-1].start()
 
     def _search(self, subject, to_ln, from_ln, search_terms):
@@ -294,8 +334,7 @@ class Application():
             subject=subject,
             to_ln=to_ln,
             from_ln=from_ln,
-            search_list=search_terms
-        )
+            search_list=search_terms)
         self.put_msg('Searching messages -> ')
         count = 0
         yes_count = 0
@@ -321,6 +360,24 @@ class Application():
         self.put_msg(f'Processed {count} messages.')
         self.put_msg(f'{percent}% ({yes_count}/{yes_count + no_count}) of messages match')
         self.searched = search_list
+        tags = ','.join(search_terms)
+        self.database.tag_emails(search_list, tags)
+        self.display_mail(tags)
+        return False
+
+    def display_mail(self, tags):
+        emails = self.database.get_tagged_emails(tags)
+        
+        for email in emails:
+            self.tabs.append(ttk.Frame(self.nEmails))
+            for part in email[0].walk():
+                if part.get_content_maintype() == 'text':
+                    text = tkinter.scrolledtext.ScrolledText(self.tabs[-1])
+                    text.insert(tk.END, part.get_payload())
+                    text.configure(state='disabled')
+                    text.pack(fill=tk.BOTH, expand=True)
+                    break
+            self.nEmails.add(self.tabs[-1], text=email[0].get('Subject'))
     
     def put_msg(self, msg):
         """
@@ -360,6 +417,9 @@ class Application():
             self.progressbar['value'] += add_val
             self.bar_log.task_done()
         
+        if int(self.pOThreadNum.get()) != active_count():
+            self.pOThreadNum.set(active_count())
+
         self.root.update_idletasks()
         self.root.after(10, self.update_status)
 

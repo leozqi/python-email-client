@@ -1,5 +1,6 @@
 from html.parser import HTMLParser
 from fuzzywuzzy import fuzz
+import utils
 
 class EmailHTMLParser(HTMLParser):
     """
@@ -65,27 +66,27 @@ def process_message(message_info, subject, to_ln, from_ln, search_list):
     message = message_info[0]
     num = message_info[1]
     important_keys = {
-        #'Date': message.get('Date'),
-        #'Sender': message.get('Sender'),
+        'Date': utils.email_to_datetime(message.get('Date')),
+    #'Sender': message.get('Sender'),
         'To': message.get('To'),
         'From': message.get('From'),
         'Subject': message.get('Subject')
     }
     if subject and specific_match([important_keys['Subject'].lower()], search_list):
-        return num
+        return important_keys
     if to_ln and specific_match([important_keys['To'].lower()], search_list):
-        return num
+        return important_keys
     if from_ln and specific_match([important_keys['From'].lower()], search_list):
-        return num
+        return important_keys
     
     for part in message.walk():
         if part.get_content_maintype() == 'text':
             if part.get_content_subtype() == 'html':
                 if ratio_is_match(get_words(part, html_parser), search_list):
-                    return num
+                    return important_keys
             elif part.get_content_subtype() == 'plain':
                 if ratio_is_match(get_words_txt(part), search_list):
-                    return num
+                    return important_keys
 
     del html_parser
     return False

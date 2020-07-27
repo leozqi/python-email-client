@@ -200,3 +200,77 @@ class EmailDatabase():
 
         self.print('No emails present.')
         return None
+
+    def tag_emails(self, key_list, tags):
+        """
+        Tags emails in database
+        Keyword arguments:
+        email_list -- The EmailGetter() class's self.emails method, 
+                      a list of email tuples of format (message, num)
+        """
+        if self.manager == None:
+            self.print('Loading Database...')
+            self.load_db()
+
+        self.print('Tagging emails...')
+        if len(key_list) == 0:
+            self.print('No emails provided.')
+            return False
+        counter = 1
+        key_amt = 100 / len(key_list)
+
+        for key in key_list:
+            self.print(f'Tagging email {counter}...')
+            self.manager.execute(
+                'UPDATE emails SET tags = ?'
+                ' WHERE subject = ? AND created = ?'
+                ' AND to_address = ? AND from_address = ?',
+                (tags, key['Subject'], key['Date'], key['To'], key['From']),
+            )
+            self.manager.commit()
+
+            counter += 1
+            if self.bar != None:
+                self.bar(key_amt)
+
+        self.print('Finished')
+        if self.bar_clear != None:
+            self.bar_clear()
+        return True
+
+    def get_tagged_emails(self, tags):
+        if self.manager == None:
+            self.print('Loading Database...')
+            self.load_db()
+
+        self.print('Loading emails...')
+        counter = 1
+        email_refs = self.manager.execute(
+            'SELECT id, tags FROM emails'
+        ).fetchall()
+
+        new_tags = tags.split(',')
+        if len(email_refs) > 0:
+            email_list = []
+            for ref in email_refs:
+                is_match = False
+                if ref['tags'] != None:
+                    ref_tags = ref['tags'].split(',')
+                    for tag in ref_tags:
+                        if tag in new_tags:
+                            is_match = True
+                            break
+                
+                if is_match == True:
+                    self.print(f'Getting email {counter}...')
+                    file_path = os.path.join(
+                        self.save_path,
+                        "".join( ( str(ref['id']), '.pkl' ) )
+                    )
+                    with open(file_path, 'rb') as f:
+                        email_list.append(pickle.load(f))
+
+                counter += 1
+            
+            return email_list
+        return False
