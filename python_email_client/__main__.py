@@ -7,13 +7,15 @@ import tkinter.messagebox
 import tkinter.simpledialog
 import tkinter.scrolledtext
 from threading import Thread, active_count
-from email_conn import *
-import parse_mail
-from database import *
 from datetime import datetime
 
-VERSION = '0.0.3'
+# Custom modules:
+import parse_mail
+from database import *
+from email_conn import *
+from scrolling_frame import *
 
+VERSION = '0.0.4'
 class Application():     
     def __init__(self):
         # Application objects
@@ -45,29 +47,12 @@ class Application():
         self.fTop.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.fLeft = tk.Frame(self.fTop)
         self.fLeft.pack(side=tk.LEFT, fill=tk.BOTH)
-        self.fRight = ttk.LabelFrame(self.fTop, text='Emails gathered:')
-        self.fRight.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.fBottom = tk.Frame(self.root, height=10)
         self.fBottom.pack(side=tk.BOTTOM, fill=tk.X)
 
         self.create_pane()
-
-        # setup email notebook
-        self.tabs = [] # Container for notebook
-        self.display_port = tk.Canvas(self.fRight, borderwidth=0)
-        self.display_frame = tk.Frame(self.display_port)
-        self.tab_scroll = tk.Scrollbar(self.fRight, orient=tk.HORIZONTAL,
-                                       command=self.display_port.xview)
-        self.tab_scroll.pack(fill=tk.X, side=tk.BOTTOM)
-
-        self.display_port.configure(xscrollcommand=self.tab_scroll.set)
-        self.display_port.pack(fill=tk.BOTH, side=tk.TOP, expand=True)
-        self.display_port.create_window((3,2), window=self.display_frame,
-                                        anchor='ne', tags='frame')
-        self.nEmails = ttk.Notebook(self.display_frame)
-        self.nEmails.pack(fill=tk.BOTH, side=tk.BOTTOM, expand=True, anchor='nw')
-       
-        self.display_frame.bind('<Configure>', self._frame_configure)
+        self.scrolling_frame = ScrollingFrameAndView(self.fLeft)
+        self.scrolling_frame.pack(side=tk.LEFT, fill=tk.Y, expand=True)
 
         # Setup status bar
         self.status = tk.StringVar()
@@ -180,8 +165,8 @@ class Application():
         self.menubar.add_cascade(label='Help', menu=self.helpmenu)
         self.root.config(menu=self.menubar)
 
-    def _frame_configure(self, event):
-        self.display_port.configure(scrollregion=self.display_port.bbox('all'))
+    # def _frame_configure(self, event):
+    #     self.display_port.configure(scrollregion=self.display_port.bbox('all'))
     
     def close(self):
         for task in self.tasks:
@@ -285,8 +270,7 @@ class Application():
         self.pOLabelVal.set(
             f'PythonEmail Client version {VERSION}.'
             '\nEmails loaded and saved.'
-            '\nUse the search function to group and view emails'
-        )
+            '\nUse the search function to group and view emails')
         self.root.update_idletasks()
 
     def search_wrapper(self):
@@ -303,7 +287,9 @@ class Application():
         self.root.update_idletasks()
 
         if self.emails == None:
-            error_msg = 'Cannot search: No emails. Use "Get Emails!" to get emails.'
+            error_msg = (
+                'Cannot search: No emails.'
+                'Use "Get Emails!" to get emails.')
             tk.messagebox.showwarning(
                 'Error',
                 message=error_msg
@@ -362,22 +348,19 @@ class Application():
         self.searched = search_list
         tags = ','.join(search_terms)
         self.database.tag_emails(search_list, tags)
+        self.put_msg('Finished tagging emails.')
         self.display_mail(tags)
         return False
 
     def display_mail(self, tags):
         emails = self.database.get_tagged_emails(tags)
-        
+        self.put_msg('Finished getting tagged emails.')
         for email in emails:
-            self.tabs.append(ttk.Frame(self.nEmails))
             for part in email[0].walk():
                 if part.get_content_maintype() == 'text':
-                    text = tkinter.scrolledtext.ScrolledText(self.tabs[-1])
-                    text.insert(tk.END, part.get_payload())
-                    text.configure(state='disabled')
-                    text.pack(fill=tk.BOTH, expand=True)
+                    self.scrolling_frame.add_button(email[0].get('Subject'),
+                                                    part.get_payload())
                     break
-            self.nEmails.add(self.tabs[-1], text=email[0].get('Subject'))
     
     def put_msg(self, msg):
         """
