@@ -1,6 +1,7 @@
 from datetime import datetime
 import time
 from email.header import Header, decode_header, make_header
+import quopri
 import email.utils
 
 def askForBool(message):
@@ -27,4 +28,8 @@ def email_to_datetime(email_date):
 def parse_sub(subject):
     decoded = make_header(decode_header(subject))
     return ''.join((str(decoded)[:40], '...')).encode(encoding='ascii',
-                                                 errors='ignore')
+                                                      errors='ignore')
+
+def parse_payload(payload):
+    decoded = payload.encode(encoding='ascii', errors='ignore').decode('utf-8')
+    return quopri.decodestring(decoded)

@@ -28,3 +28,8 @@ An optional additional thing we can do here is to add a search folder inside the
 The database will get emails from after the last scan date. If there is no scan date than the database should store all emails. This will lead to a long storage time but will cache all emails. This scan date should be stored in the `loaddate` table of `database.db`, in the resources folder. It should be in the form of a `datetime.datetime` compatible SQLITE3 TIMESTAMP value.
 
 **Load dates should be saved after each get.**
+
+## TODO:
+* Have dynamic loading: based on which emails the user requests, load ONLY THOSE from saved files []
+* Order sorted emails either descending or ascending from the sqlite3 database.
+    * This order should be changed through a Tkinter button or GUI element.

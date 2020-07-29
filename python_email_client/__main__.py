@@ -18,7 +18,8 @@ import parse_mail
 import utils
 from database import *
 from email_conn import *
-from scrolling_frame import *
+from gui_elements import *
+
 VERSION = '0.0.4'
 
 class Application():
@@ -52,7 +53,8 @@ class Application():
         self.fBottom = tk.Frame(self.root, height=10)
         self.fBottom.pack(side=tk.BOTTOM, fill=tk.X)
 
-        self.create_pane()
+        self.pane = OverviewPane(self.fTop, self.search_wrapper, VERSION)
+        self.pane.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrolling_frame = ScrollingFrameAndView(self.fTop)
         self.scrolling_frame.pack(side=tk.LEFT, fill=tk.Y, expand=True)
 
@@ -69,106 +71,14 @@ class Application():
                                            maximum=100)
         self.progressbar.pack(side=tk.LEFT)
 
-        self.create_menu()
+        self.root.config(menu=OverMenu(self.root, self.conv_mail_wrapper,
+                                       self.database.reset_db, VERSION))
 
         # Updater
         self.tasks.append(Thread(target=self.update_status))
         self.tasks[-1].setDaemon(True)
         self.tasks[-1].start()
         self.root.mainloop()
-
-    def create_pane(self):
-        # Setup paned window
-        self.pActions = ttk.Panedwindow(self.fTop, orient=tk.VERTICAL)
-
-        # Setup interface
-        self.pOverview = ttk.Labelframe(self.pActions, text='Overview')
-        self.pOLabelVal = tk.StringVar()
-        self.pOLabelVal.set(
-            f'PythonEmail Client version {VERSION}.'
-            '\nNo emails loaded.'
-            '\nPress the "Get Emails" button to get emails.'
-        )
-        self.pOLabel = ttk.Label(self.pOverview, textvariable=self.pOLabelVal)
-        self.pOLabel.pack(fill=tk.X)
-
-        self.pOThreadNum = tk.StringVar()
-        self.pOThreadNum.set(str(active_count()))
-        self.pOThreadLabel = ttk.Label(self.pOverview,
-                                       textvariable=self.pOThreadNum)
-        self.pOThreadLabel.pack(fill=tk.X)
-
-        # Setup search interface
-        self.pSearch = ttk.Labelframe(self.pActions, text='Search')
-        self.pSLabel = ttk.Label(self.pSearch,
-                                 text='Enter comma separated tag '
-                                      'values to search for:')
-        self.pSLabel.pack(fill=tk.X)
-        self.pSEntry = ttk.Entry(self.pSearch)
-        self.pSEntry.pack(fill=tk.X)
-        self.pSButton = ttk.Button(self.pSearch, text='Search!',
-                                   command=self.search_wrapper)
-        self.pSButton.pack(fill=tk.X)
-
-        # Checkbuttons
-        self.search_subject = tk.IntVar()
-        self.search_to = tk.IntVar()
-        self.search_from = tk.IntVar()
-        self.pSSearchSub = tk.Checkbutton(self.pSearch,
-                                          text='Search subject lines?',
-                                          variable=self.search_subject,
-                                          onvalue=1, offvalue=0)
-        self.pSSearchSub.pack()
-        self.pSSearchTo = tk.Checkbutton(self.pSearch,
-                                         text='Search "to" lines?',
-                                         variable=self.search_to,
-                                         onvalue=1, offvalue=0)
-        self.pSSearchTo.pack()
-        self.pSSearchFrom = tk.Checkbutton(self.pSearch,
-                                           text='Search "from" lines?',
-                                           variable=self.search_from,
-                                           onvalue=1, offvalue=0)
-        self.pSSearchFrom.pack()
-
-        # Feedback
-        self.pSLabelVal = tk.StringVar()
-        self.pSLabelVal.set(' ')
-        self.pSLabel = ttk.Label(self.pSearch, textvariable=self.pSLabelVal)
-        self.pSLabel.pack(fill=tk.X)
-
-        # Configure paned window
-        self.pActions.add(self.pOverview)
-        self.pActions.add(self.pSearch)
-        self.pActions.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
-
-    def create_menu(self):
-        # Setup menu bar
-        self.menubar = tk.Menu(self.root)
-        self.menubar.add_command(label='Get Mail!', 
-                                 command=self.conv_mail_wrapper)
-
-        # Advanced menu
-        self.advmenu = tk.Menu(self.menubar, tearoff=0)
-        self.advmenu.add_command(label='Connect', command=self.connect)
-        self.advmenu.add_command(label='Download all',
-                                 command=self._get_mail_wrapper)
-        self.advmenu.add_command(label='Save emails in database',
-                                 command=self.save_mail_wrapper)
-        self.advmenu.add_command(label='Load emails in database',
-                                 command=self.load_mail_wrapper)
-        self.advmenu.add_command(label='Reset Database',
-                                 command=self.database.reset_db)
-
-        # Help Menu
-        self.helpmenu = tk.Menu(self.menubar, tearoff=0)
-        self.helpmenu.add_command(label='About', command=self.about)
-
-        self.menubar.add_cascade(label='Advanced', menu=self.advmenu)
-        self.menubar.add_cascade(label='Help', menu=self.helpmenu)
-        self.root.config(menu=self.menubar)
-
-    # def _frame_configure(self, event):
-    #     self.display_port.configure(scrollregion=self.display_port.bbox('all'))
     
     def close(self):
         for task in self.tasks:
@@ -180,12 +90,6 @@ class Application():
                     message=error_msg)
                 return False
         self.root.destroy()
-
-    def about(self):
-        tk.messagebox.showinfo(
-            'About', 
-            message='Made by Leo Qi!'
-                    '\nVersion: ' + VERSION)
 
     def connect(self):
         if self.email_app == None:
@@ -273,35 +177,32 @@ class Application():
 
         self.database.save_last_date(datetime.now())
 
-        self.pOLabelVal.set(
+        self.pane.set_status(
             f'PythonEmail Client version {VERSION}.'
             '\nEmails loaded and saved.'
             '\nUse the search function to group and view emails')
         self.root.update_idletasks()
 
-    def search_wrapper(self):
+    def search_wrapper(self, search_val=None):
         self.root.update_idletasks()
-        subject = self.search_subject.get()
-        to_ln = self.search_to.get()
-        from_ln = self.search_from.get()
-        search_terms = self.pSEntry.get().replace(' ', '').lower().split(',')
-        string = ''
-        for search in search_terms:
-            string = "".join((string, search, '\n'))
+        subject, to_ln, from_ln = self.pane.get_checkboxes()
+        search_terms = search_val.replace(' ', '').lower().split(',')
+        if len(search_terms) == 0 or search_terms[0] == '':
+            tk.messagebox.showerror('Error:', 'No search terms provided.')
+            return False
         
-        self.pSLabelVal.set(string)
+        self.pane.set_search_terms(search_terms)
         self.root.update_idletasks()
 
         if self.emails == None:
             error_msg = (
-                'Cannot search: No emails.'
+                'Cannot search: No emails. '
                 'Use "Get Emails!" to get emails.')
             tk.messagebox.showwarning(
                 'Error',
                 message=error_msg
             )
             self.put_msg(error_msg)
-            self.pSEntry.delete(0, tk.END)
             return False
 
         self.tasks.append(Thread(target=self._search,
@@ -317,10 +218,6 @@ class Application():
         from_ln -- Boolean value of whether to search in from line
         search_terms -- A list of possible search terms.
         """
-        if self.emails == None:
-            self.put_msg('No emails to search through')
-            return False
-
         process_message_searches = partial(
             parse_mail.process_message,
             subject=subject,
@@ -337,7 +234,7 @@ class Application():
             email_amt = 100 / len(self.emails)
         except ZeroDivisionError:
             email_amt = 0
-        
+
         with Pool() as pool:
             for i in pool.imap_unordered(process_message_searches, self.emails):
                 count += 1
@@ -369,9 +266,14 @@ class Application():
         for email in emails:
             for part in email[0].walk():
                 if part.get_content_maintype() == 'text':
+                    if part.get_content_subtype() == 'plain':
+                        payload = utils.parse_payload(part.get_payload())
+                    else:
+                        payload = part.get_payload()
+                    
                     self.scrolling_frame.add_button(
                         utils.parse_sub(email[0].get('Subject')),
-                        part.get_payload())
+                        payload)
                     break
     
     def put_msg(self, msg):
@@ -399,24 +301,24 @@ class Application():
         self.root.update_idletasks()
 
     def update_status(self):
-        """
+        '''
         Refreshes self.root with status of varios infos
-        """   
+        '''
         if not self.log.empty():
             self.status.set(self.log.get())
             self.log.task_done()
         
         if not self.bar_log.empty():
             add_val = self.bar_log.get()
-            #if self.progressbar['value'] + add_val <= 100:
             self.progressbar['value'] += add_val
             self.bar_log.task_done()
         
-        if int(self.pOThreadNum.get()) != active_count():
-            self.pOThreadNum.set(active_count())
+        active_threads = active_count()
+        if self.pane.get_thread_cnt() != active_threads:
+            self.pane.set_thread_cnt(active_threads)
 
         self.root.update_idletasks()
-        self.root.after(10, self.update_status)
+        self.root.after(20, self.update_status)
 
 if __name__ == '__main__':
     app=Application()
