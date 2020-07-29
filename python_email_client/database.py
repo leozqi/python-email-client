@@ -163,12 +163,15 @@ class EmailDatabase():
             'SELECT id FROM emails'
         ).fetchall()
         
-        email_amt = 100 / len(email_refs)
+        try:
+            email_amt = 100 / len(email_refs)
+        except ZeroDivisionError:
+            email_amt = 0
+        
         if len(email_refs) > 0:
             email_list = []
             directory_corrupt = False
             for ref in email_refs:
-                self.print(f'Getting email {counter}...')
                 file_path = os.path.join(
                     self.save_path,
                     "".join( ( str(ref[0]), '.pkl' ) )

@@ -20,7 +20,7 @@ class EmailHTMLParser(HTMLParser):
 def parse_html(part, html_parser):
     if part is not None:
         try:
-            html_parser.feed(part.get_payload()) 
+            html_parser.feed(part.get_payload())
         except NotImplementedError:
             return ['']
     else:
