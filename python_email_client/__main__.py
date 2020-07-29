@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+#
+# -*-----------------*-
+
 from multiprocessing import Pool
 from queue import Queue
 from functools import partial
@@ -11,12 +15,13 @@ from datetime import datetime
 
 # Custom modules:
 import parse_mail
+import utils
 from database import *
 from email_conn import *
 from scrolling_frame import *
-
 VERSION = '0.0.4'
-class Application():     
+
+class Application():
     def __init__(self):
         # Application objects
         self.tasks = []
@@ -27,8 +32,7 @@ class Application():
         self.emails = None      # Email list
         self.searched = None    # Searched list
 
-        self.database = EmailDatabase(self.put_msg,
-                                      self.add_bar,
+        self.database = EmailDatabase(self.put_msg, self.add_bar,
                                       self.reset_bar)
 
         # Arrange the basics of window
@@ -45,13 +49,11 @@ class Application():
         )
         self.fTop = tk.Frame(self.root)
         self.fTop.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        self.fLeft = tk.Frame(self.fTop)
-        self.fLeft.pack(side=tk.LEFT, fill=tk.BOTH)
         self.fBottom = tk.Frame(self.root, height=10)
         self.fBottom.pack(side=tk.BOTTOM, fill=tk.X)
 
         self.create_pane()
-        self.scrolling_frame = ScrollingFrameAndView(self.fLeft)
+        self.scrolling_frame = ScrollingFrameAndView(self.fTop)
         self.scrolling_frame.pack(side=tk.LEFT, fill=tk.Y, expand=True)
 
         # Setup status bar
@@ -77,7 +79,7 @@ class Application():
 
     def create_pane(self):
         # Setup paned window
-        self.pActions = ttk.Panedwindow(self.fLeft, orient=tk.VERTICAL)
+        self.pActions = ttk.Panedwindow(self.fTop, orient=tk.VERTICAL)
 
         # Setup interface
         self.pOverview = ttk.Labelframe(self.pActions, text='Overview')
@@ -252,6 +254,10 @@ class Application():
         self.tasks[-1].start()
 
     def conv_mail(self): # convienence class for user
+        '''
+        Convienent pre-set method for the Get_Mail
+            button, using other defined methods.
+        '''
         # Connect
         self.connect()
 
@@ -321,20 +327,25 @@ class Application():
             to_ln=to_ln,
             from_ln=from_ln,
             search_list=search_terms)
-        self.put_msg('Searching messages -> ')
+        self.put_msg('Searching messages...')
         count = 0
         yes_count = 0
         no_count = 0
         search_list = []
+        self.reset_bar()
+        try:
+            email_amt = 100 / len(self.emails)
+        except ZeroDivisionError:
+            email_amt = 0
+        
         with Pool() as pool:
             for i in pool.imap_unordered(process_message_searches, self.emails):
                 count += 1
+                self.add_bar(email_amt)
                 if i != False:
                     search_list.append(i)
-                    self.put_msg(f'Message {count} match')
                     yes_count += 1
                 else:
-                    self.put_msg(f'Message {count} did not match')
                     no_count += 1
         percent = 0
         try:
@@ -358,8 +369,9 @@ class Application():
         for email in emails:
             for part in email[0].walk():
                 if part.get_content_maintype() == 'text':
-                    self.scrolling_frame.add_button(email[0].get('Subject'),
-                                                    part.get_payload())
+                    self.scrolling_frame.add_button(
+                        utils.parse_sub(email[0].get('Subject')),
+                        part.get_payload())
                     break
     
     def put_msg(self, msg):

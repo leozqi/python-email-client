@@ -1,5 +1,6 @@
 from datetime import datetime
 import time
+from email.header import Header, decode_header, make_header
 import email.utils
 
 def askForBool(message):
@@ -22,3 +23,8 @@ def email_to_datetime(email_date):
     return datetime.fromtimestamp(
         time.mktime(email.utils.parsedate(email_date))
     )
+
+def parse_sub(subject):
+    decoded = make_header(decode_header(subject))
+    return ''.join((str(decoded)[:40], '...')).encode(encoding='ascii',
+                                                 errors='ignore')
