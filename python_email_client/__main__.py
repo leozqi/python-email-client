@@ -20,7 +20,7 @@ from database import *
 from email_conn import *
 from gui_elements import *
 
-VERSION = '0.0.4'
+VERSION = utils.get_config()['version']
 
 class Application():
     def __init__(self):
@@ -184,11 +184,13 @@ class Application():
         self.root.update_idletasks()
 
     def search_wrapper(self, search_val=None):
+        self.pane.disable_search()
         self.root.update_idletasks()
         subject, to_ln, from_ln = self.pane.get_checkboxes()
         search_terms = search_val.replace(' ', '').lower().split(',')
         if len(search_terms) == 0 or search_terms[0] == '':
             tk.messagebox.showerror('Error:', 'No search terms provided.')
+            self.pane.enable_search()
             return False
         
         self.pane.set_search_terms(search_terms)
@@ -203,6 +205,7 @@ class Application():
                 message=error_msg
             )
             self.put_msg(error_msg)
+            self.pane.enable_search()
             return False
 
         self.tasks.append(Thread(target=self._search,
@@ -218,6 +221,8 @@ class Application():
         from_ln -- Boolean value of whether to search in from line
         search_terms -- A list of possible search terms.
         """
+        self.pane.disable_search()
+        self.root.update_idletasks()
         process_message_searches = partial(
             parse_mail.process_message,
             subject=subject,
@@ -258,22 +263,26 @@ class Application():
         self.database.tag_emails(search_list, tags)
         self.put_msg('Finished tagging emails.')
         self.display_mail(tags)
+        self.pane.enable_search()
         return False
 
     def display_mail(self, tags):
+        self.scrolling_frame.reset_frame()
+        self.root.update_idletasks()
         emails = self.database.get_tagged_emails(tags)
         self.put_msg('Finished getting tagged emails.')
         for email in emails:
             for part in email[0].walk():
                 if part.get_content_maintype() == 'text':
-                    if part.get_content_subtype() == 'plain':
-                        payload = utils.parse_payload(part.get_payload())
+                    payload = utils.parse_payload(part.get_payload())
+                    if part.get_content_subtype() == 'html':
+                        can_view = True
                     else:
-                        payload = part.get_payload()
-                    
+                        can_view = False
                     self.scrolling_frame.add_button(
                         utils.parse_sub(email[0].get('Subject')),
-                        payload)
+                        payload,
+                        can_view)
                     break
     
     def put_msg(self, msg):

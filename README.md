@@ -30,6 +30,17 @@ The database will get emails from after the last scan date. If there is no scan 
 **Load dates should be saved after each get.**
 
 ## TODO:
-* Have dynamic loading: based on which emails the user requests, load ONLY THOSE from saved files []
-* Order sorted emails either descending or ascending from the sqlite3 database.
+* Have dynamic loading: based on which emails the user requests, load ONLY THOSE from saved files [ ]
+* Order sorted emails either descending or ascending from the sqlite3 database. [ ]
     * This order should be changed through a Tkinter button or GUI element.
+* Toggle checkbutton for whether or not all search terms should match for an email
+
+Old view file using data URL (failed)
+
+    def view_in_browser(self):
+        txt = self.display_txt.get(1.0, tk.END)
+        html = urllib.parse.quote(txt, safe='')
+        url = 'data:text/html,' + html
+        # b = bytes(txt, 'utf-8')
+        # url = 'data:text/html;base64,' + base64.b64encode(b).decode('utf-8')
+        webbrowser.get(self.config['browser']).open(url)

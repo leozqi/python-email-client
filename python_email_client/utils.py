@@ -3,6 +3,8 @@ import time
 from email.header import Header, decode_header, make_header
 import quopri
 import email.utils
+from os import getenv
+from dotenv import load_dotenv
 
 def askForBool(message):
     subject = ''
@@ -33,3 +35,25 @@ def parse_sub(subject):
 def parse_payload(payload):
     decoded = payload.encode(encoding='ascii', errors='ignore').decode('utf-8')
     return quopri.decodestring(decoded)
+
+def get_config():
+    load_dotenv()
+    config_vals = {
+        'email': getenv('USER_EMAIL'),
+        'pswrd': getenv('USER_PASSWORD'),
+        'imap': getenv('IMAP_SERVER'),
+        'port': getenv('PORT'),
+        'version': getenv('VERSION')
+    }
+
+    if None in config_vals.values():
+        raise ValueError(
+            'Add a file with name ".env" with the correct values:\n'
+            'USER_EMAIL: the user\'s email.\n'
+            'USER_PASSWORD: the user\'s password for that email.\n'
+            'IMAP_SERVER: the imap server of the email address.\n'
+            'PORT: the port of the imap server. Usually 993.\n'
+            'VERSION: the version of the program.\n'
+        )
+    
+    return config_vals
