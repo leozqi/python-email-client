@@ -1,22 +1,3 @@
-Old buttons:
-
-    # connect button
-    connectbutton = tk.Button(
-        self.root, text='Connect to server',
-        command=self.connect)
-    connectbutton.pack(side=tk.TOP, fill=tk.X)
-
-    # download button
-    downloadmsgs = tk.Button(
-        self.root, text='Download Messages',
-        command=self.download)
-    downloadmsgs.pack(side=tk.TOP, fill=tk.X)
-
-Simpledialog constructors
-    tk.simpledialog.askfloat('title', 'prompt')
-    tk.simpledialog.askinteger('title', 'prompt')
-    tk.simpledialog.askstring('title', 'prompt')
-
 ## Distributed Storage
 
 The resources folder will have several files representing each and every email file stored. Each email will be stored in a file for easy access. This data serialization will be done with **CPickle**
@@ -33,7 +14,8 @@ The database will get emails from after the last scan date. If there is no scan 
 * Have dynamic loading: based on which emails the user requests, load ONLY THOSE from saved files [ ]
 * Order sorted emails either descending or ascending from the sqlite3 database. [ ]
     * This order should be changed through a Tkinter button or GUI element.
-* Toggle checkbutton for whether or not all search terms should match for an email
+* Toggle checkbutton for whether or not all search terms should match for an email [x]
+* Store datetime.datetime last date stored value AND tag strings together in data.json [ ]
 
 Old view file using data URL (failed)
 

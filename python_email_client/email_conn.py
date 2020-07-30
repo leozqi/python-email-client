@@ -1,9 +1,8 @@
 from email import message_from_bytes
 from imaplib import IMAP4_SSL
 from queue import Queue
-from os import getenv
 from threading import Thread
-from dotenv import load_dotenv
+import utils
 
 class EmailConnection():
     def __init__(self, print_func=None):
@@ -28,20 +27,11 @@ class EmailConnection():
         self.conn.logout()
 
     def get_config(self):
-        load_dotenv()
-        self.email = getenv('USER_EMAIL')
-        self.pswrd = getenv('USER_PASSWORD')
-        self.imap = getenv('IMAP_SERVER')
-        self.port = getenv('PORT')
-
-        if not (self.email and self.pswrd and self.imap and self.port):
-            raise ValueError(
-                'Add a file with name ".env" with the correct values:\n'
-                'USER_EMAIL: the user\'s email.\n'
-                'USER_PASSWORD: the user\'s password for that email.\n'
-                'IMAP_SERVER: the imap server of the email address.\n'
-                'PORT: the port of the imap server. Usually 993.\n'
-            )
+        self.config = utils.get_config()
+        self.email = self.config['email']
+        self.pswrd = self.config['pswrd']
+        self.imap = self.config['imap']
+        self.port = self.config['port']
 
     def copy_emails(self, msg_list, sort_folder):
         if self.search_mailboxes(sort_folder):

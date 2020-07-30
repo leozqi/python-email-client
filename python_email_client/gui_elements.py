@@ -66,7 +66,8 @@ class ScrollingFrameAndView(tk.Frame):
     
     def add_button(self, label, text_to_display, can_view):
         self.elements.append(ttk.Button(self.frame, text=label,
-                             command=lambda: self.display(text_to_display, can_view)))
+                             command=lambda: self.display(text_to_display,
+                                                          can_view)))
         self.elements[-1].pack(side=tk.TOP, fill=tk.X)
         self.on_row += 1
 
@@ -85,6 +86,7 @@ class ScrollingFrameAndView(tk.Frame):
             self.elements[-1].grid_forget()
             self.elements[-1].destroy()
             del self.elements[-1]
+        self.add_label('Emails below:')
 
     def highlight_searches(self, event=None):
         self.display_txt.tag_remove('found', '1.0', tk.END)
@@ -121,14 +123,15 @@ class ScrollingFrameAndView(tk.Frame):
 
     def onFrameConfigure(self, event):
         '''Reset the scroll region to encompass the inner frame'''
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.canvas.configure(scrollregion=self.canvas.bbox('all'))
 
 class OverviewPane(ttk.Panedwindow):
-    def __init__(self, parent, search_func, version):
+    def __init__(self, parent, search_func, version, tag_func):
         ttk.Panedwindow.__init__(self, parent, orient=tk.VERTICAL)
         # Overview
         self.overview = ttk.Labelframe(self, text='Overview')
         self.search_func = search_func
+        self.tag_func = tag_func
         self.status = tk.StringVar()
         self.status.set(
             f'PythonEmail Client version {version}.'
@@ -146,7 +149,7 @@ class OverviewPane(ttk.Panedwindow):
         # Search functions
         self.search = ttk.Labelframe(self, text='Search')
         self.search_lb = ttk.Label(self.search,
-                                   text='Enter comma separated tag '
+                                   text='Enter comma separated search '
                                         'values to search for:')
         self.search_lb.pack(fill=tk.X)
         self.search_en = ttk.Entry(self.search)
@@ -160,6 +163,7 @@ class OverviewPane(ttk.Panedwindow):
         self.search_sub = tk.IntVar()
         self.search_to = tk.IntVar()
         self.search_from = tk.IntVar()
+        self.search_all = tk.IntVar()
         self.search_sub_ch = tk.Checkbutton(self.search,
                                             text='Search subject lines?',
                                             variable=self.search_sub,
@@ -175,6 +179,11 @@ class OverviewPane(ttk.Panedwindow):
                                              variable=self.search_from,
                                              onvalue=1, offvalue=0)
         self.search_from_ch.pack()
+        self.search_all_ch = tk.Checkbutton(self.search,
+                                         text='All terms must match?',
+                                         variable=self.search_all,
+                                         onvalue=1, offvalue=0)
+        self.search_all_ch.pack()
 
         self.search_fd_lb = ttk.Label(self.search, text='Search values:')
         self.search_fd_lb.pack(fill=tk.X)
@@ -185,10 +194,60 @@ class OverviewPane(ttk.Panedwindow):
                                          textvariable=self.search_terms)
         self.search_terms_lb.pack(fill=tk.X)
 
+        # Tag functions
+        self.previous = ttk.Labelframe(self,
+                                       text='Previous searches (not updated)')
+        self.scwidth = 320
+        self.canvas = tk.Canvas(self.previous, borderwidth=0, width=self.scwidth)
+        self.frame = ttk.Frame(self.canvas, width=self.scwidth)
+        self.vsb = tk.Scrollbar(self.previous, orient=tk.VERTICAL,
+                                command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.vsb.set)
+        
+        self.canvas.pack(side=tk.LEFT, fill=tk.Y)
+        self.canvas.create_window((4,4), window=self.frame, anchor='nw',
+                                  tags='self.frame')
+        self.frame.bind('<Configure>', self.onFrameConfigure)
+        self.frame.bind('<Enter>', self._bind_to_mousewheel)
+        self.frame.bind('<Leave>', self._unbind_to_mousewheel)
+        self.vsb.pack(side=tk.LEFT, fill=tk.Y)
+        self.elements = [] # container for our elements
+        self.tags = []
+        self.on_row = 0
+
         # Configure paned window
         self.add(self.overview)
         self.add(self.search)
-    
+        self.add(self.previous)
+
+    def _bind_to_mousewheel(self, event):
+        self.canvas.bind_all('<MouseWheel>', self._on_mouse)
+
+    def _unbind_to_mousewheel(self, event):
+        self.canvas.unbind_all('<MouseWheel>')
+
+    def _on_mouse(self, event):
+        self.canvas.yview_scroll(int(-1*(event.delta/120)), 'units')
+
+    def onFrameConfigure(self, event):
+        '''Reset the scroll region to encompass the inner frame'''
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def add_button(self, label, tag):
+        self.elements.append(ttk.Button(self.frame, text=label,
+                                        command=lambda: self.tag_func(tag)))
+        self.elements[-1].pack(side=tk.TOP, fill=tk.X)
+        self.tags.append(tag)
+        self.on_row += 1
+
+    def reset_frame(self):
+        while len(self.elements) > 0:
+            self.elements[-1].grid_forget()
+            self.elements[-1].destroy()
+            del self.elements[-1]
+        
+        self.tags.clear()
+
     def set_status(self, txt):
         self.status.set(txt)
 
@@ -203,7 +262,7 @@ class OverviewPane(ttk.Panedwindow):
     
     def get_checkboxes(self):
         return (self.search_sub.get(), self.search_to.get(),
-                self.search_from.get())
+                self.search_from.get(), self.search_all.get())
 
     def get_thread_cnt(self):
         return int(self.thread_num.get())

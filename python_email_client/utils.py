@@ -34,7 +34,7 @@ def parse_sub(subject):
 
 def parse_payload(payload):
     decoded = payload.encode(encoding='ascii', errors='ignore').decode('utf-8')
-    return quopri.decodestring(decoded)
+    return quopri.decodestring(decoded).decode(encoding='utf-8', errors='ignore')
 
 def get_config():
     load_dotenv()

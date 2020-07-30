@@ -47,21 +47,37 @@ def get_words_txt(part):
     data = [ x.strip() for x in data if x.isspace() != True ]
     return data
 
-def specific_match(termList, matchList):
+def specific_match(termList, matchList, allMatch=False):
     for term in termList:
-        for search in matchList:  
+        matches = 0
+        for search in matchList:
             if term in search:
+                if allMatch:
+                    matches += 1
+                else:
+                    return True
+        if allMatch:
+            if matches == len(matchList):
                 return True
     return False
 
-def ratio_is_match(termList, matchList):
+def ratio_is_match(termList, matchList, allMatch=False):
     for item in termList:
+        matches = 0
         for search in matchList:
             if len(item) >= len(search) - 1 and fuzz.WRatio(item, search) > 90:
+                if allMatch:
+                    matches += 1
+                else:
+                    return True
+        if allMatch:
+            if matches == len(matchList):
                 return True
+
     return False
 
-def process_message(message_info, subject, to_ln, from_ln, search_list):
+def process_message(message_info, subject, to_ln, from_ln, search_list,
+                    all_match=False):
     html_parser = EmailHTMLParser()
     message = message_info[0]
     num = message_info[1]
@@ -72,20 +88,25 @@ def process_message(message_info, subject, to_ln, from_ln, search_list):
         'From': message.get('From'),
         'Subject': message.get('Subject')
     }
-    if subject and specific_match([important_keys['Subject'].lower()], search_list):
+    if subject and specific_match([important_keys['Subject'].lower()],
+                                  search_list, all_match):
         return important_keys
-    if to_ln and specific_match([important_keys['To'].lower()], search_list):
+    if to_ln and specific_match([important_keys['To'].lower()],
+                                search_list, all_match):
         return important_keys
-    if from_ln and specific_match([important_keys['From'].lower()], search_list):
+    if from_ln and specific_match([important_keys['From'].lower()],
+                                  search_list, all_match):
         return important_keys
     
     for part in message.walk():
         if part.get_content_maintype() == 'text':
             if part.get_content_subtype() == 'html':
-                if ratio_is_match(get_words(part, html_parser), search_list):
+                if ratio_is_match(get_words(part, html_parser),
+                                  search_list, all_match):
                     return important_keys
             elif part.get_content_subtype() == 'plain':
-                if ratio_is_match(get_words_txt(part), search_list):
+                if ratio_is_match(get_words_txt(part),
+                                  search_list, all_match):
                     return important_keys
 
     del html_parser

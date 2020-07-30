@@ -8,7 +8,6 @@ from functools import partial
 import tkinter as tk
 from tkinter import ttk
 import tkinter.messagebox
-import tkinter.simpledialog
 import tkinter.scrolledtext
 from threading import Thread, active_count
 from datetime import datetime
@@ -53,7 +52,8 @@ class Application():
         self.fBottom = tk.Frame(self.root, height=10)
         self.fBottom.pack(side=tk.BOTTOM, fill=tk.X)
 
-        self.pane = OverviewPane(self.fTop, self.search_wrapper, VERSION)
+        self.pane = OverviewPane(self.fTop, self.search_wrapper, VERSION,
+                                 self.show_tags)
         self.pane.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrolling_frame = ScrollingFrameAndView(self.fTop)
         self.scrolling_frame.pack(side=tk.LEFT, fill=tk.Y, expand=True)
@@ -127,7 +127,8 @@ class Application():
             self._get_mail_wrapper()
 
     def get_mail(self, threads):
-        self.email_get = EmailGetter(self.email_app.conn, threads, self.put_msg, self.add_bar)
+        self.email_get = EmailGetter(self.email_app.conn, threads,
+                                     self.put_msg, self.add_bar)
         self.email_get.get_emails_online(threads, self.database.get_datestr())
         self.reset_bar()
 
@@ -182,11 +183,12 @@ class Application():
             '\nEmails loaded and saved.'
             '\nUse the search function to group and view emails')
         self.root.update_idletasks()
+        tk.messagebox.showinfo('Info:', 'Finished getting all emails.')
 
     def search_wrapper(self, search_val=None):
         self.pane.disable_search()
         self.root.update_idletasks()
-        subject, to_ln, from_ln = self.pane.get_checkboxes()
+        subject, to_ln, from_ln, all_match = self.pane.get_checkboxes()
         search_terms = search_val.replace(' ', '').lower().split(',')
         if len(search_terms) == 0 or search_terms[0] == '':
             tk.messagebox.showerror('Error:', 'No search terms provided.')
@@ -209,10 +211,11 @@ class Application():
             return False
 
         self.tasks.append(Thread(target=self._search,
-                          args=(subject, to_ln, from_ln, search_terms)))
+                          args=(subject, to_ln, from_ln, search_terms,
+                                all_match)))
         self.tasks[-1].start()
 
-    def _search(self, subject, to_ln, from_ln, search_terms):
+    def _search(self, subject, to_ln, from_ln, search_terms, all_match):
         """
         Performs actual searching function and stores emails in self.searched
         Keyword Arguments:
@@ -223,12 +226,22 @@ class Application():
         """
         self.pane.disable_search()
         self.root.update_idletasks()
+        if not all_match and len(search_terms) > 1:
+            if not tk.messagebox.askyesno('Warning', ('If multiple tags are searched'
+                                                      ' without the "All items must'
+                                                      ' match" parameter, all the'
+                                                      ' results will be tagged with'
+                                                      ' every searched tag')):
+                self.put_msg('Cancelled.')
+                tk.messagebox.showinfo('Info:', 'Cancelled search.')
+
         process_message_searches = partial(
             parse_mail.process_message,
             subject=subject,
             to_ln=to_ln,
             from_ln=from_ln,
-            search_list=search_terms)
+            search_list=search_terms,
+            all_match=all_match)
         self.put_msg('Searching messages...')
         count = 0
         yes_count = 0
@@ -255,6 +268,7 @@ class Application():
         except ZeroDivisionError:
             percent = 0
 
+        self.reset_bar()
         self.put_msg('Finished processing emails.')
         self.put_msg(f'Processed {count} messages.')
         self.put_msg(f'{percent}% ({yes_count}/{yes_count + no_count}) of messages match')
@@ -271,6 +285,9 @@ class Application():
         self.root.update_idletasks()
         emails = self.database.get_tagged_emails(tags)
         self.put_msg('Finished getting tagged emails.')
+        if len(emails) == 0:
+            tk.messagebox.showinfo('Info', 'No searched emails found')
+            return False
         for email in emails:
             for part in email[0].walk():
                 if part.get_content_maintype() == 'text':
@@ -284,7 +301,37 @@ class Application():
                         payload,
                         can_view)
                     break
-    
+        self.put_tags(tags)
+        
+
+    def put_tags(self, tags):
+        l_tags = [ x for x in tags.split(',') if x.isspace() == False and x != '' ]
+        for tag in l_tags:
+            if tag not in self.pane.tags:
+                self.pane.add_button(tag, tag)
+
+        self.database.store_tags(tags)
+
+    def show_tags(self, tags):
+        self.scrolling_frame.reset_frame()
+        self.root.update_idletasks()
+        emails = self.database.get_tagged_emails(tags)
+        if len(emails) == 0:
+            return False
+        for email in emails:
+            for part in email[0].walk():
+                if part.get_content_maintype() == 'text':
+                    payload = utils.parse_payload(part.get_payload())
+                    if part.get_content_subtype() == 'html':
+                        can_view = True
+                    else:
+                        can_view = False
+                    self.scrolling_frame.add_button(
+                        utils.parse_sub(email[0].get('Subject')),
+                        payload,
+                        can_view)
+                    break
+
     def put_msg(self, msg):
         """
         Put a message into the queue to be displayed by the status bar
@@ -318,9 +365,10 @@ class Application():
             self.log.task_done()
         
         if not self.bar_log.empty():
-            add_val = self.bar_log.get()
-            self.progressbar['value'] += add_val
-            self.bar_log.task_done()
+            while not self.bar_log.empty():
+                add_val = self.bar_log.get()
+                self.progressbar['value'] += add_val
+                self.bar_log.task_done()
         
         active_threads = active_count()
         if self.pane.get_thread_cnt() != active_threads:

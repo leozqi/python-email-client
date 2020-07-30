@@ -8,6 +8,7 @@ import sqlite3
 import shutil
 import stat
 from datetime import datetime
+import json
 
 class EmailDatabase():
     def __init__(self, print_func=None, bar_func=None, bar_clear=None):
@@ -16,13 +17,15 @@ class EmailDatabase():
         self.resource_path = os.path.join(self.system_path, 'resources/')
         if not os.path.exists(self.resource_path):
             os.mkdir(self.resource_path)
-        
+
         self.save_path = os.path.join(self.system_path, 'resources/saved/')
         if not os.path.exists(self.save_path):
             os.mkdir(self.save_path)
 
         self.database_path = os.path.join(self.resource_path, 'manager.db')
         self.data_path = os.path.join(self.resource_path, 'data.pkl')
+        self.json_path = os.path.join(self.resource_path, 'data.json')
+
         # Functions and DB objects
         self.manager = None # sqlite3 db connection
         self.print = print_func
@@ -58,6 +61,8 @@ class EmailDatabase():
         os.chmod(self.resource_path, stat.S_IWUSR)
         os.mkdir(self.save_path)
         os.chmod(self.save_path, stat.S_IWUSR)
+        if os.path.exists(os.path.join(self.resource_path, 'temp/data.html')):
+            os.remove(os.path.join(self.resource_path, 'temp/data.html'))
         self.print('Resetted database.')
     
     def save_last_date(self, date):
@@ -204,12 +209,45 @@ class EmailDatabase():
         self.print('No emails present.')
         return None
 
+    def store_tags(self, tags):
+        data = self.load_json()
+        if data is None:
+            data = {}
+            data['tags'] = tags
+        else:
+            old_tags = [ x for x in data['tags'].split(',') if x.isspace() == False and x != '' ]
+            new_tags = [ x for x in tags.split(',') if x.isspace() == False and x != '' ]
+            for tag in new_tags:
+                if tag not in old_tags:
+                    old_tags.append(tag)
+            data['tags'] = ','.join(old_tags)
+
+        with open(self.json_path, 'w') as f:
+            json.dump(data, f)
+
+    def store_json(self, tags):
+        data = {
+            'tags': tags
+        }
+        with open(self.json_path, 'w') as f:
+            json.dump(data, fp)
+
+    def load_json(self):
+        if os.path.exists(self.json_path):
+            with open(self.json_path, 'r') as f:
+                data = json.load(f)
+            return data
+        return None
+
     def tag_emails(self, key_list, tags):
         """
         Tags emails in database
         Keyword arguments:
-        email_list -- The EmailGetter() class's self.emails method, 
-                      a list of email tuples of format (message, num)
+        key_list -- A dictionary of keys. Each key should contain 
+                    * a subject (non formatted) as key['Subject]
+                    * a date created (datetime.datetime obj) as key['Date']
+                    * a to address (non formatted) as key['To']
+                    * a from address (non formatted) as key['From']
         """
         if self.manager == None:
             self.print('Loading Database...')
@@ -219,24 +257,37 @@ class EmailDatabase():
         if len(key_list) == 0:
             self.print('No emails provided.')
             return False
-        counter = 1
         key_amt = 100 / len(key_list)
 
         for key in key_list:
-            self.print(f'Tagging email {counter}...')
+            tag_info = self.manager.execute(
+                'SELECT id, tags FROM emails'
+                ' WHERE subject = ? AND created = ?'
+                ' AND to_address = ? AND from_address = ?',
+                (key['Subject'], key['Date'], key['To'], key['From']),
+            ).fetchone()
+
+            if tag_info['tags'] is not None:
+                add_tags = [ x for x in tag_info['tags'].split(',') if x.isspace() == False and x != '' ]
+                search_tags = [ x for x in tags.split(',') if x.isspace() == False and x != '']
+                for tag in search_tags:
+                    if tag not in add_tags:
+                        add_tags.append(tag)
+                str_tags = ','.join(add_tags)
+            else:
+                str_tags = tags
+
             self.manager.execute(
                 'UPDATE emails SET tags = ?'
                 ' WHERE subject = ? AND created = ?'
                 ' AND to_address = ? AND from_address = ?',
-                (tags, key['Subject'], key['Date'], key['To'], key['From']),
+                (str_tags, key['Subject'], key['Date'], key['To'], key['From']),
             )
             self.manager.commit()
-
-            counter += 1
             if self.bar != None:
                 self.bar(key_amt)
 
-        self.print('Finished')
+        self.print('Finished.')
         if self.bar_clear != None:
             self.bar_clear()
         return True
@@ -272,8 +323,7 @@ class EmailDatabase():
                     )
                     with open(file_path, 'rb') as f:
                         email_list.append(pickle.load(f))
-
-                counter += 1
             
             return email_list
+        self.print('Finished.')
         return False
