@@ -2,6 +2,7 @@ import tkinter as tk
 import tkinter.messagebox
 from tkinter import ttk
 import tkinter.scrolledtext
+import gc
 
 # Only ScrollingFrameAndView.view_in_browser below
 import webbrowser
@@ -10,22 +11,24 @@ import sys
 import os
 
 class ScrollFrame(tk.Frame):
-    def __init__(self, parent, scwidth):
+    def __init__(self, parent, scwidth=None):
         '''Creates a scrolling frame.
         Keyword arguments:
         parent -- the frame's parent Tkinter element.
-        scwidth -- width of the frame
+        scwidth -- width of the frame (Default is None)
         '''
         tk.Frame.__init__(self, parent)
-        self.canvas = tk.Canvas(self, borderwidth=0, width=scwidth)
-        self.frame = ttk.Frame(self.canvas, width=scwidth)
+        if scwidth is None:
+            self.scwidth = 320
+        else:
+            self.scwidth = scwidth
+
+        self.canvas = tk.Canvas(self, borderwidth=0, width=self.scwidth)
+        self.frame = ttk.Frame(self.canvas, width=self.scwidth)
         self.vsb = tk.Scrollbar(self, orient=tk.VERTICAL,
                                 command=self.canvas.yview)
-        self.hsb = tk.Scrollbar(self, orient=tk.VERTICAL,
-                                command=self.canvas.xview)
-        self.canvas.configure(yscrollcommand=self.vsb.set,
-                              xscrollcommand=self.hsb.set)
-        
+        self.canvas.configure(yscrollcommand=self.vsb.set)
+
         self.canvas.pack(side=tk.LEFT, fill=tk.Y)
         self.canvas.create_window((0,0), window=self.frame, anchor='nw',
                                   tags='self.frame')
@@ -33,7 +36,6 @@ class ScrollFrame(tk.Frame):
         self.frame.bind('<Enter>', self._bind_mswheel)
         self.frame.bind('<Leave>', self._unbind_mswheel)
         self.vsb.pack(side=tk.LEFT, fill=tk.Y)
-        self.hsb.pack(side=tk.BOTTOM, fill=tk.X)
         self.elements = []
 
     # Binds/Unbinds mousewheel to the rendering canvas
@@ -82,29 +84,24 @@ class ScrollFrame(tk.Frame):
             self.elements[-1].grid_forget()
             self.elements[-1].destroy()
             del self.elements[-1]
-        self._on_frame_config()
+        self.canvas.configure(scrollregion=self.canvas.bbox('all'))
+        gc.collect()
 
 class ScrollingFrameAndView(tk.Frame):
     def __init__(self, parent):
         tk.Frame.__init__(self, parent)
         self.config = utils.get_config()
         self.save_path = os.path.join(sys.path[0], 'resources/temp/')
-        self.scwidth = 320
-        self.canvas = tk.Canvas(self, borderwidth=0, width=self.scwidth)
-        self.frame = ttk.Frame(self.canvas, width=self.scwidth)
-        self.vsb = tk.Scrollbar(self, orient=tk.VERTICAL,
-                                command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=self.vsb.set)
+        self.left_fm = ttk.Frame(self, width=320)
+        self.left_fm.pack(side=tk.LEFT, fill=tk.Y, expand=True)
+        self.email_num = tk.StringVar()
+        self.email_num.set('0 emails below:')
+        self.email_lb = ttk.Label(self.left_fm, textvariable=self.email_num)
+        self.email_lb.pack(fill=tk.X)
+        self.scroll_frame = ScrollFrame(self.left_fm)
+        self.scroll_frame.pack(fill=tk.Y, expand=True)
 
-        self.canvas.pack(side=tk.LEFT, fill=tk.Y)
-        self.canvas.create_window((0,0), window=self.frame, anchor='nw',
-                                  tags='self.frame')
-        self.frame.bind('<Configure>', self.onFrameConfigure)
-        self.frame.bind('<Enter>', self._bind_to_mousewheel)
-        self.frame.bind('<Leave>', self._unbind_to_mousewheel)
-        self.vsb.pack(side=tk.LEFT, fill=tk.Y)
-        self.display_frame = ttk.Labelframe(self, text='Email Text:',
-                                            width=self.scwidth)
+        self.display_frame = ttk.Labelframe(self, text='Email Text:')
         self.display_frame.pack(side=tk.LEFT, fill=tk.Y)
         self.search_lb = ttk.Label(self.display_frame, text='Search below:')
         self.search_lb.pack(side=tk.TOP, fill=tk.X)
@@ -119,29 +116,12 @@ class ScrollingFrameAndView(tk.Frame):
         self.view_bt.pack(side=tk.TOP, fill=tk.X)
         self.display_txt = tkinter.scrolledtext.ScrolledText(self.display_frame)
         self.display_txt.configure(state='disabled',
-                                    font=('TkDefaultFont', 12))
+                                   font=('TkDefaultFont', 12))
         self.display_txt.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        self.elements = [] # container for our elements
-        self.stat_var = tk.StringVar()
-        self.stat_var.set('Emails below:')
-        self.stat_lb = ttk.Label(self.frame, textvariable=self.stat_var)
-        self.stat_lb.pack(side=tk.TOP, fill=tk.X)
-
-    def _bind_to_mousewheel(self, event):
-        self.canvas.bind_all('<MouseWheel>', self._on_mouse)
-
-    def _unbind_to_mousewheel(self, event):
-        self.canvas.unbind_all('<MouseWheel>')
-
-    def _on_mouse(self, event):
-        self.canvas.yview_scroll(int(-1*(event.delta/120)), 'units')
-
     def add_button(self, label, text_to_display, can_view):
-        self.elements.append(ttk.Button(self.frame, text=label,
-                             command=lambda: self.display(text_to_display,
-                                                          can_view)))
-        self.elements[-1].pack(side=tk.TOP, fill=tk.X)
+        self.scroll_frame.add_button(label, self.display, text_to_display,
+                                     can_view)
 
     def display(self, text, can_view):
         if not can_view:
@@ -154,14 +134,11 @@ class ScrollingFrameAndView(tk.Frame):
         self.display_txt.config(state='disabled')
 
     def reset_frame(self):
-        self.vsb.set(0, 0)
-        while len(self.elements) > 0:
-            self.elements[-1].grid_forget()
-            self.elements[-1].destroy()
-            del self.elements[-1]
+        self.scroll_frame.reset_frame()
 
-    def update_var(self):
-        self.stat_var.set(f'{len(self.elements)} emails below:')
+    def update_cnt(self):
+        '''Updates the count of the amount of emails in frame'''
+        self.email_num.set(f'{len(self.scroll_frame.elements)} emails below:')
 
     def highlight_searches(self, event=None):
         self.display_txt.tag_remove('found', '1.0', tk.END)
@@ -194,11 +171,8 @@ class ScrollingFrameAndView(tk.Frame):
         with open(os.path.join(self.save_path, 'data.html'), 'w') as f:
             f.write(txt)
 
-        webbrowser.open('file://' + os.path.realpath(os.path.join(self.save_path, 'data.html')))
-
-    def onFrameConfigure(self, event):
-        '''Reset the scroll region to encompass the inner frame'''
-        self.canvas.configure(scrollregion=self.canvas.bbox('all'))
+        webbrowser.open('file://' + os.path.realpath(os.path.join(self.save_path,
+                                                                  'data.html')))
 
 class OverviewPane(ttk.Panedwindow):
     def __init__(self, parent, search_func, version, tag_func, show_func):
@@ -275,7 +249,7 @@ class OverviewPane(ttk.Panedwindow):
 
         # Tag functions
         self.previous = ttk.Labelframe(self,
-                                       text='Previous searches (not updated)')
+                                       text='Grouped Tags:')
         self.prev_searches = ScrollFrame(self.previous, 320)
         self.prev_searches.pack()
 
@@ -301,7 +275,7 @@ class OverviewPane(ttk.Panedwindow):
         for search in searches:
             string = "".join((string, search, '\n'))
         self.search_terms.set(string)
-    
+
     def get_checkboxes(self):
         return (self.search_sub.get(), self.search_to.get(),
                 self.search_from.get(), self.search_all.get())

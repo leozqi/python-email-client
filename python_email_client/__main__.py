@@ -1,7 +1,3 @@
-# -*- coding: utf-8 -*-
-#
-# -*-----------------*-
-
 from multiprocessing import Pool
 from queue import Queue
 from functools import partial
@@ -11,6 +7,7 @@ import tkinter.messagebox
 import tkinter.scrolledtext
 from threading import Thread, active_count
 from datetime import datetime
+import gc
 
 # Custom modules:
 import parse_mail
@@ -31,7 +28,6 @@ class Application():
         self.email_get = None   # EmailGetter()
         self.emails = None      # Email list
         self.searched = None    # Searched list
-
         self.database = EmailDatabase(self.put_msg, self.add_bar,
                                       self.reset_bar)
 
@@ -45,15 +41,14 @@ class Application():
         self.style.configure(
             'Status.TLabel',
             relief=tk.SUNKEN,
-            anchor=tk.W,
-        )
+            anchor=tk.W)
         self.fTop = tk.Frame(self.root)
         self.fTop.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.fBottom = tk.Frame(self.root, height=10)
         self.fBottom.pack(side=tk.BOTTOM, fill=tk.X)
 
         self.pane = OverviewPane(self.fTop, self.search_wrapper, VERSION,
-                                 self.show_tags)
+                                 self.show_tags_wrapper, self.show_wrapper)
         self.pane.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrolling_frame = ScrollingFrameAndView(self.fTop)
         self.scrolling_frame.pack(side=tk.LEFT, fill=tk.Y, expand=True)
@@ -74,6 +69,14 @@ class Application():
         self.root.config(menu=OverMenu(self.root, self.conv_mail_wrapper,
                                        self.database.reset_db, VERSION))
 
+        # Tags
+        self.tags = []
+        database_tags = self.database.load_json()
+        if 'tags' in database_tags:
+            database_tags = database_tags['tags']
+            if not database_tags.isspace() and database_tags != '':
+                self.put_tags_wrapper(database_tags)
+
         # Updater
         self.tasks.append(Thread(target=self.update_status))
         self.tasks[-1].setDaemon(True)
@@ -90,16 +93,22 @@ class Application():
                     message=error_msg)
                 return False
         self.root.destroy()
+        return True
 
-    def connect(self):
+    def _connect(self):
         if self.email_app == None:
             self.put_msg('Connecting to server...')
             self.email_app = EmailConnection()
+            if self.email_app.conn is None:
+                self.put_msg('Not Connected: Connection error/No internet!')
+                tk.messagebox.showerror('Error', 'No internet/Connection error.'
+                                                 ' The app was unable to connect'
+                                                 ' to the IMAP server.')
             self.put_msg('Connected!')
         else:
             self.log.put('Already connected!')
 
-    def _get_mail_wrapper(self, threads=None):
+    def _get_mail(self, threads=None):
         if self.email_app != None:
             if self.email_get == None:
                 self.put_msg('Getting messages')
@@ -114,80 +123,70 @@ class Application():
                         return False
                 else:
                     l_threads = threads
-
-                self.tasks.append(Thread(target=self.get_mail,
-                                  args=(l_threads,)))
-                self.tasks[-1].start()
+                self.email_get = EmailGetter(self.email_app.conn, threads,
+                                     self.put_msg, self.add_bar)
+                self.email_get.get_emails_online(threads, self.database.get_datestr())
+                self.reset_bar()
                 return True
             else:
                 self.put_msg('Emails already received.')
         else:
             self.put_msg('You must connect to the server first. Connecting...')
             self.connect()
-            self._get_mail_wrapper()
-
-    def get_mail(self, threads):
-        self.email_get = EmailGetter(self.email_app.conn, threads,
-                                     self.put_msg, self.add_bar)
-        self.email_get.get_emails_online(threads, self.database.get_datestr())
-        self.reset_bar()
-
-    def load_mail_wrapper(self):
-        self.tasks.append(Thread(target=self._load_mail))
-        self.tasks[-1].start()
+            self._get_mail()
     
     def _load_mail(self):
         self.emails = self.database.load_emails()
 
-    def save_mail_wrapper(self, emails=None):
-        if emails != None:
-            self.tasks.append(
-                Thread(target=self.database.save_emails, args=(emails,))
-            )
-            self.tasks[-1].start()
+    def _save_mail(self, emails=None):
+        if emails is not None:
+            self.database.save_emails(emails)
         else:
-            if self.emails != None:
-                self.tasks.append(
-                    Thread(target=self.database.save_emails, args=(emails,))
-                )
-                self.tasks[-1].start()
-            else:
-                self.put_msg('No emails to save...')
+            self.put_msg('No emails to save...')
 
     def conv_mail_wrapper(self):
-        self.tasks.append(Thread(target=self.conv_mail))
+        self.tasks.append(Thread(target=self._conv_mail))
         self.tasks[-1].start()
 
-    def conv_mail(self): # convienence class for user
+    def _conv_mail(self): # convienence class for user
         '''
         Convienent pre-set method for the Get_Mail
-            button, using other defined methods.
+        button, using other defined methods.
         '''
-        # Connect
-        self.connect()
-
-        # Get mail
-        self._get_mail_wrapper(threads=10)
-        self.tasks[-1].join()
-
-        self.save_mail_wrapper(self.email_get.emails)
-        self.tasks[-1].join()
-
-        self.load_mail_wrapper()
-        self.tasks[-1].join()
-
+        self._connect()
+        self._get_mail(threads=10)
+        self._save_mail(self.email_get.emails)
         self.database.save_last_date(datetime.now())
-
         self.pane.set_status(
             f'PythonEmail Client version {VERSION}.'
             '\nEmails loaded and saved.'
             '\nUse the search function to group and view emails')
-        self.root.update_idletasks()
         tk.messagebox.showinfo('Info:', 'Finished getting all emails.')
 
+    def show_wrapper(self):
+        '''Wraps the display_mail method in a thread for easy access.
+        The display_mail method indexes and displayes tagged emails
+        from the EmailDatabase() self.database object.
+        '''
+        self.tasks.append(Thread(target=self.display_mail))
+        self.tasks[-1].start()
+
     def search_wrapper(self, search_val=None):
+        '''Wraps the _search function in a thread for easy access'''
+        self.tasks.append(Thread(target=self._search,
+                          args=(search_val,)))
+        self.tasks[-1].start()
+
+    def _search(self, search_val):
+        '''
+        Performs actual searching function and stores emails in self.searched
+        Keyword Arguments:
+        search_val -- The search values to search for, in a string:
+                      'value1,value2' format
+        '''
         self.pane.disable_search()
         self.root.update_idletasks()
+
         subject, to_ln, from_ln, all_match = self.pane.get_checkboxes()
         search_terms = search_val.replace(' ', '').lower().split(',')
         if len(search_terms) == 0 or search_terms[0] == '':
@@ -196,8 +195,7 @@ class Application():
             return False
         
         self.pane.set_search_terms(search_terms)
-        self.root.update_idletasks()
-
+        self._load_mail()
         if self.emails == None:
             error_msg = (
                 'Cannot search: No emails. '
@@ -210,30 +208,16 @@ class Application():
             self.pane.enable_search()
             return False
 
-        self.tasks.append(Thread(target=self._search,
-                          args=(subject, to_ln, from_ln, search_terms,
-                                all_match)))
-        self.tasks[-1].start()
-
-    def _search(self, subject, to_ln, from_ln, search_terms, all_match):
-        """
-        Performs actual searching function and stores emails in self.searched
-        Keyword Arguments:
-        subject -- Boolean value of whether to search in subject line
-        to_ln -- Boolean value of whether to search in to line
-        from_ln -- Boolean value of whether to search in from line
-        search_terms -- A list of possible search terms.
-        """
-        self.pane.disable_search()
-        self.root.update_idletasks()
         if not all_match and len(search_terms) > 1:
-            if not tk.messagebox.askyesno('Warning', ('If multiple tags are searched'
-                                                      ' without the "All items must'
-                                                      ' match" parameter, all the'
-                                                      ' results will be tagged with'
-                                                      ' every searched tag')):
+            if not tk.messagebox.askyesno('Warning', ('If multiple tags are'
+                                                      ' searched without the'
+                                                      ' "All items must match"'
+                                                      ' parameter, all the'
+                                                      ' results will be tagged'
+                                                      ' with every searched tag')):
                 self.put_msg('Cancelled.')
                 tk.messagebox.showinfo('Info:', 'Cancelled search.')
+                return False
 
         process_message_searches = partial(
             parse_mail.process_message,
@@ -243,51 +227,49 @@ class Application():
             search_list=search_terms,
             all_match=all_match)
         self.put_msg('Searching messages...')
-        count = 0
-        yes_count = 0
-        no_count = 0
         search_list = []
         self.reset_bar()
+        messages = [ msg[1] for msg in self.emails ]
+
         try:
-            email_amt = 100 / len(self.emails)
+            email_amt = 100 / len(messages)
         except ZeroDivisionError:
             email_amt = 0
-
+        
         with Pool() as pool:
-            for i in pool.imap_unordered(process_message_searches, self.emails):
-                count += 1
+            for i in pool.imap_unordered(process_message_searches, messages):
                 self.add_bar(email_amt)
                 if i != False:
                     search_list.append(i)
-                    yes_count += 1
-                else:
-                    no_count += 1
-        percent = 0
-        try:
-            percent = (yes_count/no_count) * 100
-        except ZeroDivisionError:
-            percent = 0
 
         self.reset_bar()
         self.put_msg('Finished processing emails.')
-        self.put_msg(f'Processed {count} messages.')
-        self.put_msg(f'{percent}% ({yes_count}/{yes_count + no_count}) of messages match')
         self.searched = search_list
         tags = ','.join(search_terms)
         self.database.tag_emails(search_list, tags)
         self.put_msg('Finished tagging emails.')
         self.display_mail(tags)
         self.pane.enable_search()
-        return False
+        self.pane.set_search_terms('')
 
-    def display_mail(self, tags):
+    def display_mail(self, tags=None):
+        '''Displays mail onto scrolling_frame and updates grouped tags.
+        Keyword arguments:
+        tags -- the tags provided to update and display. Default is
+                None, which gets all emails.
+        '''
         self.scrolling_frame.reset_frame()
         self.root.update_idletasks()
-        emails = self.database.get_tagged_emails(tags)
+        if tags is not None:
+            emails = self.database.get_tagged_emails(tags)
+        else:
+            emails = self.database.get_all_emails()
+        
         self.put_msg('Finished getting tagged emails.')
         if len(emails) == 0:
             tk.messagebox.showinfo('Info', 'No searched emails found')
             return False
+
         for email in emails:
             for part in email[0].walk():
                 if part.get_content_maintype() == 'text':
@@ -301,18 +283,50 @@ class Application():
                         payload,
                         can_view)
                     break
-        self.put_tags(tags)
-        
 
-    def put_tags(self, tags):
-        l_tags = [ x for x in tags.split(',') if x.isspace() == False and x != '' ]
+        if tags is not None:
+            if tk.messagebox.askyesno('Info', 'Found emails: Tag emails? If'
+                                              ' emails are not tagged they'
+                                              ' must be searched again to'
+                                              ' view them.'):
+                self.put_tags_wrapper(tags)
+
+        self.scrolling_frame.update_cnt()
+        self.put_msg('Finished displaying mail.')
+        self.reset_bar()
+        gc.collect()
+
+    def put_tags_wrapper(self, tags):
+        '''Wraps _put_tags with a thread for easy access.'''
+        self.tasks.append(Thread(target=self._put_tags, args=(tags,)))
+        self.tasks[-1].start()
+
+    def _put_tags(self, tags):
+        '''Displays tags (folders) on GUI as well as storing any new
+        tags into the database.
+        Keyword arguments:
+        tags -- a list of tags that can be in any order in lower case.
+        '''
+        l_tags = [ x for x in tags.split(',') if not x.isspace() and x != '' ]
+        if len(l_tags) == 0:
+            tk.messagebox.showwarning('Warning',
+                                      'Operation aborted, no emails to tag.')
+            return False
+
+        bar_amt = 100 / len(l_tags)
         for tag in l_tags:
-            if tag not in self.pane.tags:
+            if tag not in self.tags:
                 self.pane.add_button(tag, tag)
+                self.tags.append(tag)
+            self.add_bar(bar_amt)
 
         self.database.store_tags(tags)
 
-    def show_tags(self, tags):
+    def show_tags_wrapper(self, tags):
+        self.tasks.append(Thread(target=self._show_tags, args=(tags,)))
+        self.tasks[-1].start()
+
+    def _show_tags(self, tags):
         self.scrolling_frame.reset_frame()
         self.root.update_idletasks()
         emails = self.database.get_tagged_emails(tags)
@@ -331,6 +345,8 @@ class Application():
                         payload,
                         can_view)
                     break
+        self.scrolling_frame.update_cnt()
+        gc.collect()
 
     def put_msg(self, msg):
         """
@@ -357,19 +373,25 @@ class Application():
         self.root.update_idletasks()
 
     def update_status(self):
-        '''
-        Refreshes self.root with status of varios infos
-        '''
+        '''Refreshes self.root with status of various infos'''
+        set_val = ''
         if not self.log.empty():
-            self.status.set(self.log.get())
-            self.log.task_done()
-        
+            while not self.log.empty():
+                set_val = self.log.get()
+                self.log.task_done()
+            self.status.set(set_val)
+
+        add_val = 0
         if not self.bar_log.empty():
             while not self.bar_log.empty():
-                add_val = self.bar_log.get()
-                self.progressbar['value'] += add_val
+                add_val += self.bar_log.get()
                 self.bar_log.task_done()
-        
+            
+            if self.progressbar['value'] + add_val > 100:
+                self.progressbar['value'] = 100
+            else:
+                self.progressbar['value'] += add_val
+
         active_threads = active_count()
         if self.pane.get_thread_cnt() != active_threads:
             self.pane.set_thread_cnt(active_threads)

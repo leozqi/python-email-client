@@ -7,5 +7,6 @@ CREATE TABLE emails (
     created TIMESTAMP NOT NULL,
     to_address TEXT NOT NULL,
     from_address TEXT NOT NULL,
+    read INTEGER NOT NULL,
     tags TEXT
 );

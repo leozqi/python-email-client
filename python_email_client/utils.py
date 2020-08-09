@@ -34,7 +34,18 @@ def parse_sub(subject):
 
 def parse_payload(payload):
     decoded = payload.encode(encoding='ascii', errors='ignore').decode('utf-8')
-    return quopri.decodestring(decoded).decode(encoding='utf-8', errors='ignore')
+    decoded = quopri.decodestring(decoded).decode(encoding='utf-8', errors='ignore')
+    count = 0
+    terms = [] #[(search_term, value)]
+    while count < len(decoded):
+        if ord(decoded[count]) > 65535:
+            terms.append(decoded[count])
+        count += 1
+
+    for t in terms:
+        decoded = decoded.replace(t, ''.join(('{U', str(ord(t)), '}')))
+
+    return decoded
 
 def get_config():
     load_dotenv()
@@ -57,3 +68,35 @@ def get_config():
         )
     
     return config_vals
+
+# Currently Unused
+class TaskManager():
+    '''
+    Manages the application's tasks. These tasks are run sequentially in a
+    separate thread to not interfere with the main GUI, and any print statements
+    are passed to the GUI separately.
+
+    Tuple format: (function, (args,))
+    '''
+    def __init__(self, print_func, bar_func, reset_func):
+        self.task_q = Queue()
+        self.task_t = Thread(target=self.task_getter)
+        self.task_t.daemon = True
+        self.task_t.start()
+    
+    def __del__(self):
+        while not self.task_q.empty():
+            self.task_q.get()
+            self.task_q.task_done()
+    
+    def task_getter(self):
+        while True:
+            if not self.task_q.empty():
+                data = self.task_q.get()
+                func = data[0]
+                func_args = data[1] # tuple of args
+                func(*data[1])
+                self.task_q.task_done()
+
+    def put_task(self, func, *args):
+        self.task_q.put( (func, *args) )

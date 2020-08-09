@@ -3,28 +3,35 @@ from imaplib import IMAP4_SSL
 from queue import Queue
 from threading import Thread
 import utils
+import tkinter as tk
+import socket
 
 class EmailConnection():
     def __init__(self, print_func=None):
-        """
+        '''
         Defines an email connection to our IMAP server.
         Requires a valid dotenv file to be present.
         Be sure to delete the object afterwards to log out of the server.
 
         Keyword arguments
         print_func -- An Application() class's put_msg function
-        """
+        '''
         self.get_config()
-        self.conn = IMAP4_SSL(self.imap, self.port)
-        self.conn.login(self.email, self.pswrd)
-        self.print = print_func
-        
-    def __del__(self):
         try:
-            self.conn.close()
-        except:
-            pass
-        self.conn.logout()
+            self.conn = IMAP4_SSL(self.imap, self.port)
+            self.conn.login(self.email, self.pswrd)
+        except socket.gaierror:
+            self.conn = None
+
+        self.print = print_func
+
+    def __del__(self):
+        if self.conn is not None:
+            try:
+                self.conn.close()
+                self.conn.logout()
+            except:
+                pass
 
     def get_config(self):
         self.config = utils.get_config()
@@ -33,39 +40,11 @@ class EmailConnection():
         self.imap = self.config['imap']
         self.port = self.config['port']
 
-    def copy_emails(self, msg_list, sort_folder):
-        if self.search_mailboxes(sort_folder):
-            self.print('Found existing mailbox, deleting... ')
-            self.conn.delete(sort_folder)
-            self.print('Finished!')
-        self.print(f'Creating mailbox {sort_folder} ... ')
-        self.conn.create(sort_folder)
-        self.print('Finished!')
-        self.conn.select('INBOX')
-        self.print('Copying Emails -> ')
-        for num in msg_list:
-            self.conn.copy(num, sort_folder)
-            self.print('.')
-        self.print('\nFinished!')
-
-    def move_emails(self, msg_list, sort_folder):
-        if self.search_mailboxes(sort_folder):
-            self.print('Found existing mailbox, deleting... ')
-            self.conn.delete(sort_folder)
-            self.print('Finished!')
-        self.print(f'Creating mailbox {sort_folder} ... ')
-        self.conn.create(sort_folder)
-        self.print('Finished!')
-        self.conn.select('INBOX')
-        self.print('Moving Emails -> ')
-        for num in msg_list:
-            self.conn.copy(num, sort_folder)
-            self.conn.store(num, '+FLAGS', '\\Deleted')
-            self.print('.')
-        self.conn.expunge()
-        self.print('Finished!')
-
-    def search_mailboxes(self, sort_folder):
+    def search_for_mailbox(self, sort_folder):
+        '''
+        Searches for the presence of a mailbox/folder in the account.
+        CURRENTLY UNUSED
+        '''
         status, response = self.conn.list()
         if status == 'OK':
             for item in response:

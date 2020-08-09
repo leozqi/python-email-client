@@ -9,9 +9,18 @@ import shutil
 import stat
 from datetime import datetime
 import json
+import tkinter as tk
+import tkinter.messagebox
 
 class EmailDatabase():
     def __init__(self, print_func=None, bar_func=None, bar_clear=None):
+        '''
+        Initializes an email database.
+        Keyword arguments:
+            print_func -- a method outputting information to a window
+            bar_func -- a method that adds an amount to a ttk.progressBar
+            bar_clear -- a method that clears the progress bar.
+        '''
         # Different paths
         self.system_path = sys.path[0]
         self.resource_path = os.path.join(self.system_path, 'resources/')
@@ -27,36 +36,51 @@ class EmailDatabase():
         self.json_path = os.path.join(self.resource_path, 'data.json')
 
         # Functions and DB objects
-        self.manager = None # sqlite3 db connection
-        self.print = print_func
-        self.bar = bar_func
-        self.bar_clear = bar_clear
-        self.load_db()      # loads db
+        self.manager = self._load_db() # sqlite3 db connection
+
+        # If any functions not provided, default all to standard print func.
+        if print_func == bar_func == bar_clear == None:
+            self.print = print
+            self.bar = print
+            self.bar_clear = print
+        else:
+            self.print = print_func
+            self.bar = bar_func
+            self.bar_clear = bar_clear
+
         self.last_date = self._load_last_date()
 
-    def load_db(self):
-        if self.manager == None:
-            if os.path.exists(self.database_path):
-                self.manager = sqlite3.connect(
-                    self.database_path,
-                    detect_types=sqlite3.PARSE_DECLTYPES,
-                    check_same_thread=False
-                )
-                self.manager.row_factory = sqlite3.Row
-            else:
-                with open(self.database_path, 'w') as f:
-                    pass
-                self.load_db()
-                with open('schema.sql', 'r') as f:
-                    self.manager.executescript(f.read())
+    def _load_db(self):
+        '''
+        Returns a stored SQLITE3 database. Creates one if one is not found.
+        The path of the database is stored at the self.database_path attribute.
+        '''
+        if os.path.exists(self.database_path):
+            db = sqlite3.connect(
+                self.database_path,
+                detect_types=sqlite3.PARSE_DECLTYPES,
+                check_same_thread=False
+            )
+            db.row_factory = sqlite3.Row
+            return db
         else:
-            raise Exception('Database already loaded.')
+            with open(self.database_path, 'x') as f:
+                pass
+            db = self._load_db()
+            with open('schema.sql', 'r') as f:
+                db.executescript(f.read())
+            db.commit()
+            return db
 
     def reset_db(self):
+        '''
+        Resets the database. Deletes all contents.
+        '''
         self.print('Resetting...')
         self.manager = None
         os.remove(self.database_path)
         os.remove(self.data_path)
+        os.remove(self.json_path)
         shutil.rmtree(self.save_path)
         os.chmod(self.resource_path, stat.S_IWUSR)
         os.mkdir(self.save_path)
@@ -66,44 +90,60 @@ class EmailDatabase():
         self.print('Resetted database.')
     
     def save_last_date(self, date):
-        """
-        Save a datetime.datetime object as a pickle.
+        '''
+        Save a datetime.datetime object as a string POSIX timestamp.
         Keyword arguments:
         date - a datetime.datetime object
-        """
-        with open(self.data_path, 'wb') as out:
-            pickle.dump(date, out, pickle.HIGHEST_PROTOCOL)
+        '''
+        stored = datetime.timestamp(date)
+        if not os.path.exists(self.json_path):
+            data = {
+                'date': stored
+            }
+            with open(self.json_path, 'w') as f:
+                json.dump(data, f)
+            return True
+
+        data = self.load_json()
+        if data is None:
+            data = {}
+            data['date'] = stored
+
+        with open(self.json_path, 'w') as f:
+            json.dump(data, f)
 
     def _load_last_date(self):
-        """
-        Returns the last date of the file.
+        '''
+        Returns the last date that the email server was accessed.
         Returns: datetime.datetime object or Nonetype if not found.
-        """
+        '''
         try:
-            with open(self.data_path, 'rb') as f:
-                return pickle.load(f)
+            with open(self.json_path, 'r') as f:
+                data = self.load_json()
+                if data is None:
+                    return None
+                elif 'date' not in data:
+                    return None
+                else:
+                    return datetime.fromtimestamp(data['date'])
         except FileNotFoundError:
             return None
 
-    def get_datestr(self):
+    def get_datestr(self): 
         if self.last_date == None:
             return None
         else:
             return self.last_date.strftime('%d-%b-%Y')
 
     def save_emails(self, email_list):
-        """
+        '''
         Keyword arguments:
         email_list -- The EmailGetter() class's self.emails method, 
                       a list of email tuples of format (message, num)
-        """
-        if self.manager == None:
-            self.print('Loading Database...')
-            self.load_db()
-
+        '''
         self.print('Saving emails...')
         if len(email_list) == 0:
-            self.print('No emails provided.')
+            self.print('No new emails to save.')
             return False
         counter = 1
         email_amt = 100 / len(email_list)
@@ -120,7 +160,8 @@ class EmailDatabase():
                     and isinstance(to_line, str) 
                     and isinstance(from_line, str))):
                 # Check if all inputs are correct
-                self.print('Aborting... connection error')
+                self.print('Aborting... connection error. Resetting.')
+                self.reset_db()
                 return False
             
             exists = self.manager.execute(
@@ -133,9 +174,9 @@ class EmailDatabase():
             if exists == None: # only get new emails
                 self.manager.execute(
                     'INSERT INTO emails'
-                    ' (subject, created, to_address, from_address)'
-                    ' VALUES (?, ?, ?, ?)',
-                    (subject, date, to_line, from_line),
+                    ' (subject, created, to_address, from_address, read)'
+                    ' VALUES (?, ?, ?, ?, ?)',
+                    (subject, date, to_line, from_line, 0),
                 )
                 self.manager.commit()
                 file_id = self.manager.execute(
@@ -158,32 +199,26 @@ class EmailDatabase():
         return True
     
     def load_emails(self):
-        if self.manager == None:
-            self.print('Loading Database...')
-            self.load_db()
-
+        '''
+        Returns a tuple of (id, email_msg) values.
+        '''
         self.print('Loading emails...')
         counter = 1
         email_refs = self.manager.execute(
             'SELECT id FROM emails'
         ).fetchall()
-        
-        try:
-            email_amt = 100 / len(email_refs)
-        except ZeroDivisionError:
-            email_amt = 0
-        
+
         if len(email_refs) > 0:
+            email_amt = 100 / len(email_refs)
             email_list = []
             directory_corrupt = False
             for ref in email_refs:
                 file_path = os.path.join(
                     self.save_path,
-                    "".join( ( str(ref[0]), '.pkl' ) )
-                )
+                    "".join( ( str(ref[0]), '.pkl' ) ))
                 try:
                     with open(file_path, 'rb') as f:
-                        email_list.append(pickle.load(f))
+                        email_list.append( (ref[0], pickle.load(f)) )
                 except FileNotFoundError:
                     directory_corrupt = True
                     break
@@ -194,11 +229,12 @@ class EmailDatabase():
             if directory_corrupt:
                 self.print('Loading database failed... corrupt elements.')
                 self.print('Deleting existing database...')
+                tk.messagebox.showerror('Error:', 'Loading database failed...'
+                                                  ' Corrupt elements. Reinitializing.')
                 self.reset_db()
-                self.print('Finished.')
-
                 if self.bar_clear != None:
                     self.bar_clear()
+                self.print('Finished.')
                 return None
 
             self.print('Finished.')
@@ -207,16 +243,17 @@ class EmailDatabase():
             return email_list
 
         self.print('No emails present.')
-        return None
 
     def store_tags(self, tags):
         data = self.load_json()
         if data is None:
             data = {}
             data['tags'] = tags
+        elif 'tags' not in data:
+            data['tags'] = tags
         else:
-            old_tags = [ x for x in data['tags'].split(',') if x.isspace() == False and x != '' ]
-            new_tags = [ x for x in tags.split(',') if x.isspace() == False and x != '' ]
+            old_tags = [ x for x in data['tags'].split(',') if not x.isspace() and x != '' ]
+            new_tags = [ x for x in tags.split(',') if not x.isspace() and x != '' ]
             for tag in new_tags:
                 if tag not in old_tags:
                     old_tags.append(tag)
@@ -230,7 +267,7 @@ class EmailDatabase():
             'tags': tags
         }
         with open(self.json_path, 'w') as f:
-            json.dump(data, fp)
+            json.dump(data, f)
 
     def load_json(self):
         if os.path.exists(self.json_path):
@@ -240,22 +277,17 @@ class EmailDatabase():
         return None
 
     def tag_emails(self, key_list, tags):
-        """
-        Tags emails in database
+        '''Tags emails in database
         Keyword arguments:
-        key_list -- A dictionary of keys. Each key should contain 
-                    * a subject (non formatted) as key['Subject]
-                    * a date created (datetime.datetime obj) as key['Date']
-                    * a to address (non formatted) as key['To']
-                    * a from address (non formatted) as key['From']
-        """
-        if self.manager == None:
-            self.print('Loading Database...')
-            self.load_db()
-
+        key_list -- A list/tuple of dicts. Each dict should contain
+                    * a subject (str non formatted) as dict['Subject]
+                    * a date created (datetime.datetime obj) as dict['Date']
+                    * a to address (str non formatted) as dict['To']
+                    * a from address (str non formatted) as dict['From']
+        '''
         self.print('Tagging emails...')
         if len(key_list) == 0:
-            self.print('No emails provided.')
+            self.print('No emails to tag.')
             return False
         key_amt = 100 / len(key_list)
 
@@ -268,8 +300,8 @@ class EmailDatabase():
             ).fetchone()
 
             if tag_info['tags'] is not None:
-                add_tags = [ x for x in tag_info['tags'].split(',') if x.isspace() == False and x != '' ]
-                search_tags = [ x for x in tags.split(',') if x.isspace() == False and x != '']
+                add_tags = [ x for x in tag_info['tags'].split(',') if not x.isspace() and x != '' ]
+                search_tags = [ x for x in tags.split(',') if not x.isspace() and x != '']
                 for tag in search_tags:
                     if tag not in add_tags:
                         add_tags.append(tag)
@@ -293,10 +325,6 @@ class EmailDatabase():
         return True
 
     def get_tagged_emails(self, tags):
-        if self.manager == None:
-            self.print('Loading Database...')
-            self.load_db()
-
         self.print('Loading emails...')
         counter = 1
         email_refs = self.manager.execute(
@@ -306,6 +334,7 @@ class EmailDatabase():
         new_tags = tags.split(',')
         if len(email_refs) > 0:
             email_list = []
+            self.print('Getting emails...')
             for ref in email_refs:
                 is_match = False
                 if ref['tags'] != None:
@@ -316,7 +345,6 @@ class EmailDatabase():
                             break
                 
                 if is_match == True:
-                    self.print(f'Getting email {counter}...')
                     file_path = os.path.join(
                         self.save_path,
                         "".join( ( str(ref['id']), '.pkl' ) )
@@ -325,5 +353,28 @@ class EmailDatabase():
                         email_list.append(pickle.load(f))
             
             return email_list
+        self.print('Finished.')
+        return False
+
+    def get_all_emails(self):
+        self.print('Loading emails...')
+        counter = 1
+        email_refs = self.manager.execute(
+            'SELECT id, tags FROM emails'
+        ).fetchall()
+        if len(email_refs) > 0:
+            bar_add = 100 / len(email_refs)
+            email_list = []
+            self.print('Getting emails...')
+            for ref in email_refs:
+                file_path = os.path.join(
+                    self.save_path,
+                    "".join( ( str(ref['id']), '.pkl' ) )
+                )
+                with open(file_path, 'rb') as f:
+                    email_list.append(pickle.load(f))
+                self.bar(bar_add)
+            return email_list
+            self.bar_clear()
         self.print('Finished.')
         return False
