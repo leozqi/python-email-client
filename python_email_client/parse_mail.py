@@ -3,9 +3,7 @@ from fuzzywuzzy import fuzz
 import utils
 
 class EmailHTMLParser(HTMLParser):
-    """
-    Extends the HTMLParser class for our own email parser
-    """
+    '''Extends the HTMLParser class for our own email parser'''
     def __init__(self, *args, **kwargs):
         super(EmailHTMLParser, self).__init__(*args, **kwargs)
         self.data = []
@@ -17,6 +15,8 @@ class EmailHTMLParser(HTMLParser):
         self.data = []
 ## End class EmailHTMLParser ##
 
+html_parser = EmailHTMLParser()
+
 def parse_html(part, html_parser):
     if part is not None:
         try:
@@ -25,7 +25,7 @@ def parse_html(part, html_parser):
             return ['']
     else:
         return ['']
-    data = [x.strip().lower() for x in html_parser.data if x.isspace() != True]
+    data = [x.strip().lower() for x in html_parser.data if not x.isspace()]
     html_parser.clear_data()
     return data
 
@@ -44,7 +44,7 @@ def get_words_txt(part):
     else:
         return []
     data = txt.strip().lower().split()
-    data = [ x.strip() for x in data if x.isspace() != True ]
+    data = [x.strip() for x in data if not x.isspace()]
     return data
 
 def specific_match(termList, matchList, allMatch=False):
@@ -78,12 +78,28 @@ def ratio_is_match(termList, matchList, allMatch=False):
 
 def process_message(message_info, subject, to_ln, from_ln, search_list,
                     all_match=False):
-    html_parser = EmailHTMLParser()
+    '''Processes an email by parsing its contents and then returning
+    the message's data if it matches a term in the search list, or False
+    otherwise.
+    Keyword arguments:
+    message_info -- a tuple of form (email_msg, email_num integer). See
+                    README.md, Documentation.
+    subject -- a boolean value (or integer) that represents whether or
+               not to search in the subject line of an email.
+    to_ln -- a boolean value representing whether or not to search in
+             the to line of an email.
+    from_ln -- a boolean value representing whether or not to search in
+               the from line of an email.
+    search_list -- a list or tuple of possible search values (as
+                   strings)
+    all_match -- a boolean value representing whether or not to match
+                 all search values in search_list. (Default False)
+    '''
+    global html_parser
     message = message_info[0]
     num = message_info[1]
     important_keys = {
         'Date': utils.email_to_datetime(message.get('Date')),
-    #'Sender': message.get('Sender'),
         'To': message.get('To'),
         'From': message.get('From'),
         'Subject': message.get('Subject')
@@ -109,5 +125,5 @@ def process_message(message_info, subject, to_ln, from_ln, search_list,
                                   search_list, all_match):
                     return important_keys
 
-    del html_parser
+    html_parser.clear_data()
     return False

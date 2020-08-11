@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS emails;
+DROP TABLE IF EXISTS files;
 
 CREATE TABLE emails (
     id INTEGER PRIMARY KEY,
@@ -9,4 +10,13 @@ CREATE TABLE emails (
     from_address TEXT NOT NULL,
     read INTEGER NOT NULL,
     tags TEXT
+);
+
+CREATE TABLE files (
+    id INTEGER PRIMARY KEY,
+    filename TEXT NOT NULL,
+    extension TEXT NOT NULL,
+    created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    email_lk INTEGER NOT NULL,
+    FOREIGN KEY (email_lk) REFERENCES emails (id)
 );

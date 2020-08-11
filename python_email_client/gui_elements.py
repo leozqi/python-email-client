@@ -10,6 +10,9 @@ import utils
 import sys
 import os
 
+# Only ScrollingFrameAndView.view_attached below
+import subprocess
+
 class ScrollFrame(tk.Frame):
     def __init__(self, parent, scwidth=None):
         '''Creates a scrolling frame.
@@ -118,16 +121,30 @@ class ScrollingFrameAndView(tk.Frame):
         self.display_txt.configure(state='disabled',
                                    font=('TkDefaultFont', 12))
         self.display_txt.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.attachment_bt = ttk.Button(self.display_frame,
+                                        text='Open attachment(s)',
+                                        command=self.view_attached)
+        self.attachment_bt.pack(side=tk.TOP, fill=tk.X)
 
-    def add_button(self, label, text_to_display, can_view):
+    def add_button(self, label, text_to_display, can_view, attach_ids=None):
         self.scroll_frame.add_button(label, self.display, text_to_display,
-                                     can_view)
+                                     can_view, attach_ids)
 
-    def display(self, text, can_view):
+    def display(self, text, can_view, attach_ids):
         if not can_view:
             self.view_bt.config(state=tk.DISABLED)
         else:
             self.view_bt.config(state=tk.NORMAL)
+        
+        if attach_ids:
+            self.attach_ids = attach_ids
+            self.attachment_bt.config(state=tk.NORMAL)
+        else:
+            self.attachment_bt.config(state=tk.DISABLED)
+
+        if text is None:
+            text = '<<This email has no text -- Python Email Client Message>>'
+
         self.display_txt.config(state='normal')
         self.display_txt.delete('1.0', 'end')
         self.display_txt.insert('1.0', text)
@@ -157,11 +174,12 @@ class ScrollingFrameAndView(tk.Frame):
                 self.display_txt.see(pos)
                 count += 1
             self.display_txt.tag_config('found', background='yellow')
-        if count == 0:
-            tk.messagebox.showwarning('Warning:', 'No search results found.')
-            return False
-        self.display_txt.focus_set()
-        return True
+            if count == 0:
+                tk.messagebox.showwarning('Warning:', 'No search results found.')
+                return False
+            self.display_txt.focus_set()
+            return True
+        tk.messagebox.showwarning('Warning', 'No search specified.')
 
     def view_in_browser(self):
         txt = self.display_txt.get(1.0, tk.END)
@@ -173,6 +191,19 @@ class ScrollingFrameAndView(tk.Frame):
 
         webbrowser.open('file://' + os.path.realpath(os.path.join(self.save_path,
                                                                   'data.html')))
+
+    def view_attached(self):
+        if self.attach_ids is None:
+            tk.messagebox.showerror('Error', 'No attachments to display.')
+            return False
+
+        tk.messagebox.showinfo('Info', 'Opening attached file(s) with a default'
+                                       ' system application.')
+        for filename in self.attach_ids:
+            if sys.platform == 'linux2':
+                subprocess.call(["xdg-open", filename])
+            else:
+                os.startfile(filename)
 
 class OverviewPane(ttk.Panedwindow):
     def __init__(self, parent, search_func, version, tag_func, show_func):

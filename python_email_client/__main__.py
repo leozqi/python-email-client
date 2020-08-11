@@ -72,10 +72,11 @@ class Application():
         # Tags
         self.tags = []
         database_tags = self.database.load_json()
-        if 'tags' in database_tags:
-            database_tags = database_tags['tags']
-            if not database_tags.isspace() and database_tags != '':
-                self.put_tags_wrapper(database_tags)
+        if database_tags is not None:
+            if 'tags' in database_tags:
+                database_tags = database_tags['tags']
+                if not database_tags.isspace() and database_tags != '':
+                    self.put_tags_wrapper(database_tags)
 
         # Updater
         self.tasks.append(Thread(target=self.update_status))
@@ -270,19 +271,7 @@ class Application():
             tk.messagebox.showinfo('Info', 'No searched emails found')
             return False
 
-        for email in emails:
-            for part in email[0].walk():
-                if part.get_content_maintype() == 'text':
-                    payload = utils.parse_payload(part.get_payload())
-                    if part.get_content_subtype() == 'html':
-                        can_view = True
-                    else:
-                        can_view = False
-                    self.scrolling_frame.add_button(
-                        utils.parse_sub(email[0].get('Subject')),
-                        payload,
-                        can_view)
-                    break
+        self._display_mail(emails)
 
         if tags is not None:
             if tk.messagebox.askyesno('Info', 'Found emails: Tag emails? If'
@@ -332,36 +321,44 @@ class Application():
         emails = self.database.get_tagged_emails(tags)
         if len(emails) == 0:
             return False
-        for email in emails:
+        self._display_mail(emails)
+        self.scrolling_frame.update_cnt()
+        gc.collect()
+
+    def _display_mail(self, emails):
+        '''Displays mail by adding buttons to self.scrolling_frame.
+        Should never be called on except when used by other methods of
+        this class as they handle user input before this step.
+        Keyword arguments:
+            emails -- list of (email, attached) tuples, where
+                      attached is also a list of attached filename paths.
+        '''
+        payload = None
+        can_view = False
+
+        for email, attached in emails:
             for part in email[0].walk():
                 if part.get_content_maintype() == 'text':
                     payload = utils.parse_payload(part.get_payload())
                     if part.get_content_subtype() == 'html':
                         can_view = True
-                    else:
-                        can_view = False
-                    self.scrolling_frame.add_button(
-                        utils.parse_sub(email[0].get('Subject')),
-                        payload,
-                        can_view)
                     break
-        self.scrolling_frame.update_cnt()
-        gc.collect()
+
+            if attached is not None:
+                self.scrolling_frame.add_button(
+                    utils.parse_sub(email[0].get('Subject')),
+                    payload, can_view, attached)
+            else:
+                self.scrolling_frame.add_button(
+                    utils.parse_sub(email[0].get('Subject')),
+                    payload, can_view)
 
     def put_msg(self, msg):
-        """
-        Put a message into the queue to be displayed by the status bar
-        Keyword arguments:
-        msg -- A string displayed in the status bar
-        """
+        '''Put message (msg) into the queue to be shown by status bar'''
         self.log.put(msg)
 
     def add_bar(self, amt):
-        """
-        Add to the progress bar an amount
-        Keyword arguments:
-        amt -- Amount to add
-        """
+        '''Add to the progress bar (amt)'''
         self.bar_log.put(amt)
 
     def reset_bar(self):

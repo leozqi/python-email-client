@@ -31,8 +31,11 @@ class EmailDatabase():
         if not os.path.exists(self.save_path):
             os.mkdir(self.save_path)
 
+        self.attach_path = os.path.join(self.system_path, 'resources/attach/')
+        if not os.path.exists(self.attach_path):
+            os.mkdir(self.attach_path)
+
         self.database_path = os.path.join(self.resource_path, 'manager.db')
-        self.data_path = os.path.join(self.resource_path, 'data.pkl')
         self.json_path = os.path.join(self.resource_path, 'data.json')
 
         # Functions and DB objects
@@ -73,22 +76,24 @@ class EmailDatabase():
             return db
 
     def reset_db(self):
-        '''
-        Resets the database. Deletes all contents.
-        '''
+        '''Resets the database. Deletes all database contents.'''
         self.print('Resetting...')
         self.manager = None
         os.remove(self.database_path)
-        os.remove(self.data_path)
-        os.remove(self.json_path)
+        if os.path.exists(self.json_path):
+            os.remove(self.json_path)
         shutil.rmtree(self.save_path)
         os.chmod(self.resource_path, stat.S_IWUSR)
         os.mkdir(self.save_path)
         os.chmod(self.save_path, stat.S_IWUSR)
+        shutil.rmtree(self.attach_path)
+        os.mkdir(self.attach_path)
+        os.chmod(self.attach_path, stat.S_IWUSR)
+
         if os.path.exists(os.path.join(self.resource_path, 'temp/data.html')):
             os.remove(os.path.join(self.resource_path, 'temp/data.html'))
         self.print('Resetted database.')
-    
+
     def save_last_date(self, date):
         '''
         Save a datetime.datetime object as a string POSIX timestamp.
@@ -145,21 +150,23 @@ class EmailDatabase():
         if len(email_list) == 0:
             self.print('No new emails to save.')
             return False
-        counter = 1
+
         email_amt = 100 / len(email_list)
         for email in email_list:
-            self.print(f'Saving email {counter}...')
             # Get header values
             subject = email[0].get('Subject')
+            if subject is None:
+                subject = 'No subject provided...'
             date = utils.email_to_datetime(email[0].get('Date'))
             to_line = email[0].get('To')
             from_line = email[0].get('From')
 
-            if (not (isinstance(subject, str) 
-                    and isinstance(date, datetime) 
-                    and isinstance(to_line, str) 
+            if (not (isinstance(subject, str)
+                    and isinstance(date, datetime)
+                    and isinstance(to_line, str)
                     and isinstance(from_line, str))):
                 # Check if all inputs are correct
+                tk.messagebox.showerror('Error', 'Aborting... connection error. Resetting.')
                 self.print('Aborting... connection error. Resetting.')
                 self.reset_db()
                 return False
@@ -171,7 +178,7 @@ class EmailDatabase():
                 (subject, date, to_line, from_line)
             ).fetchone()
 
-            if exists == None: # only get new emails
+            if exists is None: # only get new emails
                 self.manager.execute(
                     'INSERT INTO emails'
                     ' (subject, created, to_address, from_address, read)'
@@ -179,17 +186,46 @@ class EmailDatabase():
                     (subject, date, to_line, from_line, 0),
                 )
                 self.manager.commit()
-                file_id = self.manager.execute(
+                mail_id = self.manager.execute(
                     'SELECT last_insert_rowid() FROM emails'
                 ).fetchone()
-                file_path = os.path.join(
+                mail_path = os.path.join(
                     self.save_path,
-                    "".join( (str(file_id[0]), '.pkl') )
+                    "".join( (str(mail_id[0]), '.pkl') )
                 )
-                with open(file_path, 'wb') as out:
+                with open(mail_path, 'wb') as out:
                     pickle.dump(email, out, pickle.HIGHEST_PROTOCOL)
 
-            counter += 1
+                # Also save potential attachments
+                for part in email[0].walk():
+                    if part.get_content_maintype() == 'multipart':
+                        continue
+                    if not part.get('Content-Disposition'):
+                        continue
+
+                    if part.get_filename() is None:
+                        continue
+                    elif part.get_filename().isspace() or part.get_filename() == '':
+                        continue
+
+                    filename, file_ext = os.path.splitext(part.get_filename())
+                    self.manager.execute(
+                        'INSERT INTO files (filename, extension, email_lk)'
+                        ' VALUES (?, ?, ?)',
+                        (filename, file_ext, mail_id[0]),
+                    )
+                    self.manager.commit()
+                    
+                    file_id = self.manager.execute(
+                        'SELECT last_insert_rowid() FROM files'
+                    ).fetchone()
+                    file_path = os.path.join(
+                        self.attach_path,
+                        ''.join( (str(file_id[0]), file_ext) )
+                    )
+                    with open(file_path, 'wb') as out:
+                        out.write(part.get_payload(decode=1))
+
             if self.bar != None:
                 self.bar(email_amt)
 
@@ -199,9 +235,7 @@ class EmailDatabase():
         return True
     
     def load_emails(self):
-        '''
-        Returns a tuple of (id, email_msg) values.
-        '''
+        '''Returns a tuple of (id, email_msg) values.'''
         self.print('Loading emails...')
         counter = 1
         email_refs = self.manager.execute(
@@ -213,11 +247,11 @@ class EmailDatabase():
             email_list = []
             directory_corrupt = False
             for ref in email_refs:
-                file_path = os.path.join(
+                mail_path = os.path.join(
                     self.save_path,
                     "".join( ( str(ref[0]), '.pkl' ) ))
                 try:
-                    with open(file_path, 'rb') as f:
+                    with open(mail_path, 'rb') as f:
                         email_list.append( (ref[0], pickle.load(f)) )
                 except FileNotFoundError:
                     directory_corrupt = True
@@ -230,7 +264,8 @@ class EmailDatabase():
                 self.print('Loading database failed... corrupt elements.')
                 self.print('Deleting existing database...')
                 tk.messagebox.showerror('Error:', 'Loading database failed...'
-                                                  ' Corrupt elements. Reinitializing.')
+                                                  ' Corrupt elements.'
+                                                  ' Reinitializing.')
                 self.reset_db()
                 if self.bar_clear != None:
                     self.bar_clear()
@@ -325,6 +360,10 @@ class EmailDatabase():
         return True
 
     def get_tagged_emails(self, tags):
+        '''Gets emails tagged with a tag in list/tuple (tags).
+        Returns list of email, attachment file name tuples:
+        ->    [(email, filename), ...]
+        '''
         self.print('Loading emails...')
         counter = 1
         email_refs = self.manager.execute(
@@ -345,13 +384,9 @@ class EmailDatabase():
                             break
                 
                 if is_match == True:
-                    file_path = os.path.join(
-                        self.save_path,
-                        "".join( ( str(ref['id']), '.pkl' ) )
-                    )
-                    with open(file_path, 'rb') as f:
-                        email_list.append(pickle.load(f))
-            
+                    email_list.append(self.get_message_details(ref))
+
+            self.print('Finished.')
             return email_list
         self.print('Finished.')
         return False
@@ -367,14 +402,35 @@ class EmailDatabase():
             email_list = []
             self.print('Getting emails...')
             for ref in email_refs:
-                file_path = os.path.join(
-                    self.save_path,
-                    "".join( ( str(ref['id']), '.pkl' ) )
-                )
-                with open(file_path, 'rb') as f:
-                    email_list.append(pickle.load(f))
+                email_list.append(self.get_message_details(ref))
                 self.bar(bar_add)
-            return email_list
+
             self.bar_clear()
+            return email_list
+
         self.print('Finished.')
         return False
+
+    def get_message_details(self, ref):
+        '''Get one email message and all of its attachments
+        Keyword arguments:
+        ref -- the internal database reference of the email
+        '''
+        attachments = self.manager.execute(
+            'SELECT id, filename, extension, email_lk FROM files'
+            ' WHERE email_lk = ?',
+            (ref['id'],)
+        ).fetchall()
+        attach_ls = None
+        if len(attachments) > 0:
+            attach_ls = []
+            for attached in attachments:
+                filename = ''.join( (str(attached['id']), attached['extension']) )
+                attach_ls.append(os.path.join(self.attach_path, filename))
+
+        file_path = os.path.join(
+            self.save_path,
+            "".join( ( str(ref['id']), '.pkl' ) )
+        )
+        with open(file_path, 'rb') as f:
+            return (pickle.load(f), attach_ls)
