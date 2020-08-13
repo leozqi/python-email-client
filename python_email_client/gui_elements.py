@@ -106,7 +106,9 @@ class ScrollingFrameAndView(tk.Frame):
     def __init__(self, parent):
         tk.Frame.__init__(self, parent)
         self.config = utils.get_config()
-        self.save_path = os.path.join(sys.path[0], 'resources/temp/')
+        self.save_path = os.path.join(utils.get_store_path(), 'resources/temp/')
+        if not os.path.exists(self.save_path):
+            os.makedirs(self.save_path)
         self.left_fm = ttk.Frame(self, width=320)
         self.left_fm.pack(side=tk.LEFT, fill=tk.Y, expand=True)
         self.email_num = tk.StringVar()

@@ -4,7 +4,9 @@ from email.header import Header, decode_header, make_header
 import quopri
 import email.utils
 from os import getenv
+from os import path
 from dotenv import load_dotenv
+import platform
 
 def askForBool(message):
     subject = ''
@@ -71,3 +73,9 @@ def get_config():
         )
     
     return config_vals
+
+def get_store_path():
+    if platform.system() == 'Windows':
+        return path.join(path.expanduser('~'), 'AppData\\Local\\Python Email')
+    else:
+        return path.join(path.expanduser('~'), 'Python Email')

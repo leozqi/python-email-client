@@ -21,18 +21,21 @@ class EmailDatabase():
             bar_func -- a method that adds an amount to a ttk.progressBar
         '''
         # Different paths
-        self.system_path = sys.path[0]
+        self.system_path = utils.get_store_path()
+        if not os.path.exists(self.system_path):
+            os.makedirs(self.system_path)
+
         self.resource_path = os.path.join(self.system_path, 'resources/')
         if not os.path.exists(self.resource_path):
-            os.mkdir(self.resource_path)
+            os.makedirs(self.resource_path)
 
         self.save_path = os.path.join(self.system_path, 'resources/saved/')
         if not os.path.exists(self.save_path):
-            os.mkdir(self.save_path)
+            os.makedirs(self.save_path)
 
         self.attach_path = os.path.join(self.system_path, 'resources/attach/')
         if not os.path.exists(self.attach_path):
-            os.mkdir(self.attach_path)
+            os.makedirs(self.attach_path)
 
         self.database_path = os.path.join(self.resource_path, 'manager.db')
         self.json_path = os.path.join(self.resource_path, 'data.json')
