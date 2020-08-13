@@ -21,24 +21,31 @@ class ScrollFrame(tk.Frame):
         scwidth -- width of the frame (Default is None)
         '''
         tk.Frame.__init__(self, parent)
-        if scwidth is None:
-            self.scwidth = 320
-        else:
-            self.scwidth = scwidth
+        self.scwidth = scwidth
 
-        self.canvas = tk.Canvas(self, borderwidth=0, width=self.scwidth)
-        self.frame = ttk.Frame(self.canvas, width=self.scwidth)
+        if self.scwidth is None:
+            self.canvas = tk.Canvas(self, borderwidth=0)
+            self.frame = ttk.Frame(self.canvas)
+        else:
+            self.canvas = tk.Canvas(self, borderwidth=0, width=self.scwidth)
+            self.frame = ttk.Frame(self.canvas, width=self.scwidth)
+
+
         self.vsb = tk.Scrollbar(self, orient=tk.VERTICAL,
                                 command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.vsb.set)
 
-        self.canvas.pack(side=tk.LEFT, fill=tk.Y)
+        fill = tk.Y
+        if self.scwidth is None:
+            fill = tk.BOTH
+
+        self.canvas.pack(side=tk.LEFT, fill=fill, expand=True)
         self.canvas.create_window((0,0), window=self.frame, anchor='nw',
                                   tags='self.frame')
         self.frame.bind('<Configure>', self._on_frame_config)
         self.frame.bind('<Enter>', self._bind_mswheel)
         self.frame.bind('<Leave>', self._unbind_mswheel)
-        self.vsb.pack(side=tk.LEFT, fill=tk.Y)
+        self.vsb.pack(side=tk.LEFT, fill=tk.Y, expand=True)
         self.elements = []
 
     # Binds/Unbinds mousewheel to the rendering canvas
@@ -49,11 +56,16 @@ class ScrollFrame(tk.Frame):
         self.canvas.unbind_all('<MouseWheel>')
 
     def _on_mouse(self, event):
-        self.canvas.yview_scroll(int(-1*(event.delta/120)), 'units')
+        if self.frame_h >= self.canvas_h:
+            self.canvas.yview_scroll(int(-1*(event.delta/120)), 'units')
 
     def _on_frame_config(self, event):
         '''Reset the scroll region to encompass the inner frame'''
         self.canvas.configure(scrollregion=self.canvas.bbox('all'))
+        self.frame.update()
+        self.canvas.update()
+        self.frame_h = self.frame.winfo_height()
+        self.canvas_h = self.canvas.winfo_height()
 
     def add_label(self, text):
         '''Adds a label to the ScrollFrame.
@@ -101,11 +113,10 @@ class ScrollingFrameAndView(tk.Frame):
         self.email_num.set('0 emails below:')
         self.email_lb = ttk.Label(self.left_fm, textvariable=self.email_num)
         self.email_lb.pack(fill=tk.X)
-        self.scroll_frame = ScrollFrame(self.left_fm)
+        self.scroll_frame = ScrollFrame(self.left_fm, 320)
         self.scroll_frame.pack(fill=tk.Y, expand=True)
 
         self.display_frame = ttk.Labelframe(self, text='Email Text:')
-        self.display_frame.pack(side=tk.LEFT, fill=tk.Y)
         self.search_lb = ttk.Label(self.display_frame, text='Search below:')
         self.search_lb.pack(side=tk.TOP, fill=tk.X)
         self.search_txt = ttk.Entry(self.display_frame)
@@ -125,6 +136,10 @@ class ScrollingFrameAndView(tk.Frame):
                                         text='Open attachment(s)',
                                         command=self.view_attached)
         self.attachment_bt.pack(side=tk.TOP, fill=tk.X)
+        self.display_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, anchor='nw')
+
+        # self.attachment_display = ScrollFrame(self.display_frame, 320)
+        # self.attachment_display.pack(fill=tk.X)
 
     def add_button(self, label, text_to_display, can_view, attach_ids=None):
         self.scroll_frame.add_button(label, self.display, text_to_display,
@@ -206,7 +221,8 @@ class ScrollingFrameAndView(tk.Frame):
                 os.startfile(filename)
 
 class OverviewPane(ttk.Panedwindow):
-    def __init__(self, parent, search_func, version, tag_func, show_func):
+    def __init__(self, parent, search_func, version, tag_func, show_func,
+                 conv_func):
         ttk.Panedwindow.__init__(self, parent, orient=tk.VERTICAL)
         # Overview
         self.overview = ttk.Labelframe(self, text='Overview')
@@ -216,7 +232,6 @@ class OverviewPane(ttk.Panedwindow):
         self.status = tk.StringVar()
         self.status.set(
             f'PythonEmail Client version {version}.'
-            '\nNo emails loaded.'
             '\nPress the "Get Emails" button to get emails.'
         )
         self.status_lb = ttk.Label(self.overview, textvariable=self.status)
@@ -226,6 +241,9 @@ class OverviewPane(ttk.Panedwindow):
         self.thread_num.set('1')
         self.thread_lb = ttk.Label(self.overview, textvariable=self.thread_num)
         self.thread_lb.pack(fill=tk.X)
+        self.refresh_bt = ttk.Button(self.overview, text='Sync with server',
+                                     command=conv_func)
+        self.refresh_bt.pack(fill=tk.X)
         self.show_bt = ttk.Button(self.overview, text='Show All Emails!',
                                   command=self.show_func)
         self.show_bt.pack(fill=tk.X)
@@ -240,8 +258,7 @@ class OverviewPane(ttk.Panedwindow):
         self.search_en.pack(fill=tk.X)
         self.search_bt = ttk.Button(self.search, text='Search!',
                                     command= lambda: self.search_func(
-                                        self.search_en.get())
-                                    )
+                                        self.search_en.get()))
         self.search_bt.pack(fill=tk.X)
 
         self.search_sub = tk.IntVar()
@@ -282,7 +299,7 @@ class OverviewPane(ttk.Panedwindow):
         self.previous = ttk.Labelframe(self,
                                        text='Grouped Tags:')
         self.prev_searches = ScrollFrame(self.previous, 320)
-        self.prev_searches.pack()
+        self.prev_searches.pack(fill=tk.BOTH, expand=True)
 
         # Configure paned window
         self.add(self.overview)
@@ -347,3 +364,15 @@ class OverMenu(tk.Menu):
             'About', 
             message='Made by Leo Qi!'
                     '\nVersion: ' + self.version)
+
+def center(toplevel):
+    toplevel.update_idletasks()
+
+    screen_width = toplevel.winfo_screenwidth()
+    screen_height = toplevel.winfo_screenheight()
+
+    size = tuple(int(_) for _ in toplevel.geometry().split('+')[0].split('x'))
+    x = screen_width/2 - size[0]/2
+    y = screen_height/2 - size[1]/2
+
+    toplevel.geometry("+%d+%d" % (x, y))

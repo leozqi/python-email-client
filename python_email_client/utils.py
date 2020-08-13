@@ -29,8 +29,11 @@ def email_to_datetime(email_date):
 
 def parse_sub(subject):
     decoded = make_header(decode_header(subject))
-    return ''.join((str(decoded)[:40], '...')).encode(encoding='ascii',
-                                                      errors='ignore')
+    if len(str(decoded)) <= 40:
+        return str(decoded).encode(encoding='ascii', errors='ignore')
+    else:
+        return ''.join((str(decoded)[:40], '...')).encode(encoding='ascii',
+                                                        errors='ignore')
 
 def parse_payload(payload):
     decoded = payload.encode(encoding='ascii', errors='ignore').decode('utf-8')
@@ -68,35 +71,3 @@ def get_config():
         )
     
     return config_vals
-
-# Currently Unused
-class TaskManager():
-    '''
-    Manages the application's tasks. These tasks are run sequentially in a
-    separate thread to not interfere with the main GUI, and any print statements
-    are passed to the GUI separately.
-
-    Tuple format: (function, (args,))
-    '''
-    def __init__(self, print_func, bar_func, reset_func):
-        self.task_q = Queue()
-        self.task_t = Thread(target=self.task_getter)
-        self.task_t.daemon = True
-        self.task_t.start()
-    
-    def __del__(self):
-        while not self.task_q.empty():
-            self.task_q.get()
-            self.task_q.task_done()
-    
-    def task_getter(self):
-        while True:
-            if not self.task_q.empty():
-                data = self.task_q.get()
-                func = data[0]
-                func_args = data[1] # tuple of args
-                func(*data[1])
-                self.task_q.task_done()
-
-    def put_task(self, func, *args):
-        self.task_q.put( (func, *args) )

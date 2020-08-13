@@ -28,9 +28,14 @@ class Application():
         self.email_get = None   # EmailGetter()
         self.emails = None      # Email list
         self.searched = None    # Searched list
-        self.database = EmailDatabase(self.put_msg, self.add_bar,
-                                      self.reset_bar)
 
+        # For Toplevel() dialog
+        self.progress_w = None
+        self.w_status = None
+        self.w_status_lb = None
+        self.w_progress_br = None
+
+        self.database = EmailDatabase(self.put_msg, self.add_bar)
         # Arrange the basics of window
         self.root = tk.Tk()
         self.root.geometry('1000x750')
@@ -43,32 +48,18 @@ class Application():
             relief=tk.SUNKEN,
             anchor=tk.W)
         self.fTop = tk.Frame(self.root)
-        self.fTop.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        self.fBottom = tk.Frame(self.root, height=10)
-        self.fBottom.pack(side=tk.BOTTOM, fill=tk.X)
-
-        self.pane = OverviewPane(self.fTop, self.search_wrapper, VERSION,
-                                 self.show_tags_wrapper, self.show_wrapper)
-        self.pane.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.scrolling_frame = ScrollingFrameAndView(self.fTop)
-        self.scrolling_frame.pack(side=tk.LEFT, fill=tk.Y, expand=True)
-
-        # Setup status bar
-        self.status = tk.StringVar()
-        self.status.set('Not connected')
-        self.statuslabel = ttk.Label(
-            self.fBottom, textvariable=self.status,
-            style='Status.TLabel',
-        )
-        self.statuslabel.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.progressbar = ttk.Progressbar(self.fBottom, orient=tk.HORIZONTAL,
-                                           length=150, mode='determinate',
-                                           maximum=100)
-        self.progressbar.pack(side=tk.LEFT)
 
         self.root.config(menu=OverMenu(self.root, self.conv_mail_wrapper,
                                        self.database.reset_db, VERSION))
 
+        self.pane = OverviewPane(self.fTop, self.search_wrapper, VERSION,
+                                 self.show_tags_wrapper, self.show_wrapper,
+                                 lambda: self.wrapper(self._conv_mail))
+        self.pane.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.scrolling_frame = ScrollingFrameAndView(self.fTop)
+        self.scrolling_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.fTop.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         # Tags
         self.tags = []
         database_tags = self.database.load_json()
@@ -83,7 +74,7 @@ class Application():
         self.tasks[-1].setDaemon(True)
         self.tasks[-1].start()
         self.root.mainloop()
-    
+
     def close(self):
         for task in self.tasks:
             if task.is_alive():
@@ -95,6 +86,16 @@ class Application():
                 return False
         self.root.destroy()
         return True
+
+    def wrapper(self, func, *args):
+        '''Wraps the function (func) with args (args) into a thread.
+        Allows easy execution without blocking the Tkinter loop
+        '''
+        if len(args) == 0:
+            self.tasks.append(Thread(target=func))
+        else:
+            self.tasks.append(Thread(target=func, args=args))
+        self.tasks[-1].start()
 
     def _connect(self):
         if self.email_app == None:
@@ -127,7 +128,6 @@ class Application():
                 self.email_get = EmailGetter(self.email_app.conn, threads,
                                      self.put_msg, self.add_bar)
                 self.email_get.get_emails_online(threads, self.database.get_datestr())
-                self.reset_bar()
                 return True
             else:
                 self.put_msg('Emails already received.')
@@ -150,9 +150,8 @@ class Application():
         self.tasks[-1].start()
 
     def _conv_mail(self): # convienence class for user
-        '''
-        Convienent pre-set method for the Get_Mail
-        button, using other defined methods.
+        '''Convienent pre-set method for the Get_Mail button
+        Uses other defined methods during operation.
         '''
         self._connect()
         self._get_mail(threads=10)
@@ -218,6 +217,7 @@ class Application():
                                                       ' with every searched tag')):
                 self.put_msg('Cancelled.')
                 tk.messagebox.showinfo('Info:', 'Cancelled search.')
+                self.pane.enable_search()
                 return False
 
         process_message_searches = partial(
@@ -229,7 +229,6 @@ class Application():
             all_match=all_match)
         self.put_msg('Searching messages...')
         search_list = []
-        self.reset_bar()
         messages = [ msg[1] for msg in self.emails ]
 
         try:
@@ -243,7 +242,6 @@ class Application():
                 if i != False:
                     search_list.append(i)
 
-        self.reset_bar()
         self.put_msg('Finished processing emails.')
         self.searched = search_list
         tags = ','.join(search_terms)
@@ -267,7 +265,8 @@ class Application():
             emails = self.database.get_all_emails()
         
         self.put_msg('Finished getting tagged emails.')
-        if len(emails) == 0:
+
+        if not emails or len(emails) == 0:
             tk.messagebox.showinfo('Info', 'No searched emails found')
             return False
 
@@ -282,7 +281,6 @@ class Application():
 
         self.scrolling_frame.update_cnt()
         self.put_msg('Finished displaying mail.')
-        self.reset_bar()
         gc.collect()
 
     def put_tags_wrapper(self, tags):
@@ -361,33 +359,59 @@ class Application():
         '''Add to the progress bar (amt)'''
         self.bar_log.put(amt)
 
-    def reset_bar(self):
-        if not self.bar_log.empty():
-            while not self.bar_log.empty():
-                get = self.bar_log.get()
-                self.bar_log.task_done()
-        self.progressbar['value'] = 0
-        self.root.update_idletasks()
-
     def update_status(self):
         '''Refreshes self.root with status of various infos'''
-        set_val = ''
-        if not self.log.empty():
-            while not self.log.empty():
-                set_val = self.log.get()
-                self.log.task_done()
-            self.status.set(set_val)
-
-        add_val = 0
-        if not self.bar_log.empty():
-            while not self.bar_log.empty():
-                add_val += self.bar_log.get()
-                self.bar_log.task_done()
+        task_alive = False
+        for task in self.tasks: # TODO: make task a tuple of (task_name, actual thread tasks)
+            if task.is_alive() and not task.isDaemon():
+                task_alive = True
+                break
+        
+        if task_alive:
+            if self.progress_w is None:
+                self.progress_w = tk.Toplevel()
+                self.progress_w.geometry('300x50')
+                self.progress_w.title('Task running...')
+                self.progress_w.iconbitmap('favicon.ico')
+                self.w_status = tk.StringVar()
+                self.w_status.set(' ')
+                self.w_status_lb = ttk.Label(self.progress_w,
+                                             textvariable=self.w_status)
+                self.w_progress_br = ttk.Progressbar(self.progress_w,
+                                                     orient=tk.HORIZONTAL,
+                                                     mode='determinate',
+                                                     maximum=100)
+                self.w_progress_br['value'] = 0
+                self.w_status_lb.pack(fill=tk.X)
+                self.w_progress_br.pack(fill=tk.X)
+                center(self.progress_w)
             
-            if self.progressbar['value'] + add_val > 100:
-                self.progressbar['value'] = 100
-            else:
-                self.progressbar['value'] += add_val
+            set_val = ''
+            if not self.log.empty():
+                while not self.log.empty():
+                    set_val = self.log.get()
+                    self.log.task_done()
+                self.w_status.set(set_val)
+
+            add_val = 0
+            if not self.bar_log.empty():
+                while not self.bar_log.empty():
+                    add_val += self.bar_log.get()
+                    self.bar_log.task_done()
+                
+                if self.w_progress_br['value'] + add_val > 100:
+                    self.w_progress_br['value'] = 100
+                else:
+                    self.w_progress_br['value'] += add_val
+
+        elif self.progress_w is not None:
+            self.w_status_lb.destroy()
+            self.w_progress_br.destroy()
+            self.progress_w.destroy()
+            self.progress_w = None
+            self.w_status = None
+            self.w_status_lb = None
+            self.w_progress_br = None
 
         active_threads = active_count()
         if self.pane.get_thread_cnt() != active_threads:

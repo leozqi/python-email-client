@@ -13,13 +13,12 @@ import tkinter as tk
 import tkinter.messagebox
 
 class EmailDatabase():
-    def __init__(self, print_func=None, bar_func=None, bar_clear=None):
+    def __init__(self, print_func=None, bar_func=None):
         '''
         Initializes an email database.
         Keyword arguments:
             print_func -- a method outputting information to a window
             bar_func -- a method that adds an amount to a ttk.progressBar
-            bar_clear -- a method that clears the progress bar.
         '''
         # Different paths
         self.system_path = sys.path[0]
@@ -42,14 +41,12 @@ class EmailDatabase():
         self.manager = self._load_db() # sqlite3 db connection
 
         # If any functions not provided, default all to standard print func.
-        if print_func == bar_func == bar_clear == None:
+        if print_func == bar_func == None:
             self.print = print
             self.bar = print
-            self.bar_clear = print
         else:
             self.print = print_func
             self.bar = bar_func
-            self.bar_clear = bar_clear
 
         self.last_date = self._load_last_date()
 
@@ -230,10 +227,7 @@ class EmailDatabase():
                 self.bar(email_amt)
 
         self.print('Finished')
-        if self.bar_clear != None:
-            self.bar_clear()
-        return True
-    
+
     def load_emails(self):
         '''Returns a tuple of (id, email_msg) values.'''
         self.print('Loading emails...')
@@ -267,14 +261,10 @@ class EmailDatabase():
                                                   ' Corrupt elements.'
                                                   ' Reinitializing.')
                 self.reset_db()
-                if self.bar_clear != None:
-                    self.bar_clear()
                 self.print('Finished.')
                 return None
 
             self.print('Finished.')
-            if self.bar_clear != None:
-                self.bar_clear()
             return email_list
 
         self.print('No emails present.')
@@ -355,8 +345,6 @@ class EmailDatabase():
                 self.bar(key_amt)
 
         self.print('Finished.')
-        if self.bar_clear != None:
-            self.bar_clear()
         return True
 
     def get_tagged_emails(self, tags):
@@ -405,7 +393,6 @@ class EmailDatabase():
                 email_list.append(self.get_message_details(ref))
                 self.bar(bar_add)
 
-            self.bar_clear()
             return email_list
 
         self.print('Finished.')
