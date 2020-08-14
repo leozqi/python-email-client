@@ -1,4 +1,4 @@
-DROP TABLE IF EXISTS emails;
+SCHEMA = '''DROP TABLE IF EXISTS emails;
 DROP TABLE IF EXISTS files;
 
 CREATE TABLE emails (
@@ -20,3 +20,15 @@ CREATE TABLE files (
     email_lk INTEGER NOT NULL,
     FOREIGN KEY (email_lk) REFERENCES emails (id)
 );
+
+CREATE TABLE profiles (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    password TEXT NOT NULL,
+    imap TEXT NOT NULL,
+    port INTEGER NOT NULL DEFAULT 993
+);
+'''
+
+VERSION='0.0.7'

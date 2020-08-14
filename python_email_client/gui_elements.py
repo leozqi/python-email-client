@@ -3,6 +3,7 @@ import tkinter.messagebox
 from tkinter import ttk
 import tkinter.scrolledtext
 import gc
+import config
 
 # Only ScrollingFrameAndView.view_in_browser below
 import webbrowser
@@ -30,16 +31,15 @@ class ScrollFrame(tk.Frame):
             self.canvas = tk.Canvas(self, borderwidth=0, width=self.scwidth)
             self.frame = ttk.Frame(self.canvas, width=self.scwidth)
 
-
         self.vsb = tk.Scrollbar(self, orient=tk.VERTICAL,
                                 command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.vsb.set)
 
-        fill = tk.Y
         if self.scwidth is None:
-            fill = tk.BOTH
+            self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        else:
+            self.canvas.pack(side=tk.LEFT, fill=tk.Y)
 
-        self.canvas.pack(side=tk.LEFT, fill=fill, expand=True)
         self.canvas.create_window((0,0), window=self.frame, anchor='nw',
                                   tags='self.frame')
         self.frame.bind('<Configure>', self._on_frame_config)
@@ -62,8 +62,8 @@ class ScrollFrame(tk.Frame):
     def _on_frame_config(self, event):
         '''Reset the scroll region to encompass the inner frame'''
         self.canvas.configure(scrollregion=self.canvas.bbox('all'))
-        self.frame.update()
-        self.canvas.update()
+        self.frame.update_idletasks()
+        self.canvas.update_idletasks()
         self.frame_h = self.frame.winfo_height()
         self.canvas_h = self.canvas.winfo_height()
 
@@ -72,7 +72,7 @@ class ScrollFrame(tk.Frame):
         Keyword arguments:
         text -- the text on the label
         '''
-        self.elements.append(ttk.Label(self.frame, text=text))
+        self.elements.append(ttk.Label(self.frame, text=tfext))
         self.elements[-1].pack(side=tk.TOP, fill=tk.X)
 
     def add_button(self, text, command, *args):
@@ -102,6 +102,21 @@ class ScrollFrame(tk.Frame):
         self.canvas.configure(scrollregion=self.canvas.bbox('all'))
         gc.collect()
 
+class ScrollText(tk.scrolledtext.ScrolledText):
+    def __init__(self, parent):
+        tk.scrolledtext.ScrolledText.__init__(self, parent)
+        self.configure(state='disabled',
+                       font=('TkDefaultFont', 12))
+    
+    def show_txt(self, text, default=' '):
+        if text is None:
+            text = default
+
+        self.display_txt.config(state='normal')
+        self.display_txt.delete('1.0', 'end')
+        self.display_txt.insert('1.0', text)
+        self.display_txt.config(state='disabled')
+
 class ScrollingFrameAndView(tk.Frame):
     def __init__(self, parent):
         tk.Frame.__init__(self, parent)
@@ -118,36 +133,59 @@ class ScrollingFrameAndView(tk.Frame):
         self.scroll_frame = ScrollFrame(self.left_fm, 320)
         self.scroll_frame.pack(fill=tk.Y, expand=True)
 
-        self.display_frame = ttk.Labelframe(self, text='Email Text:')
-        self.search_lb = ttk.Label(self.display_frame, text='Search below:')
-        self.search_lb.pack(side=tk.TOP, fill=tk.X)
-        self.search_txt = ttk.Entry(self.display_frame)
-        self.search_txt.bind('<Return>', self.highlight_searches)
-        self.search_txt.pack(side=tk.TOP, fill=tk.X)
-        self.search_bt = ttk.Button(self.display_frame, text='Search for text',
+        self.display_frame = ttk.Labelframe(self, text='Email Viewer:')
+
+        self.email_info_sv = tk.StringVar()
+        self.email_info_sv.set(' ')
+        self.email_info_lb = ttk.Label(self.display_frame,
+                                       textvariable=self.email_info_sv)
+        self.email_info_lb.pack(fill=tk.X)
+
+        # Text search function
+        self.search_f = ttk.Frame(self.display_frame)
+        self.search_lb = ttk.Label(self.search_f, text='Find words in email:')
+        self.search_lb.pack(side=tk.LEFT)
+        self.search_en = ttk.Entry(self.search_f)
+        self.search_en.bind('<Return>', self.highlight_searches)
+        self.search_en.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.search_bt = ttk.Button(self.search_f, text='Search for text',
                                     command=self.highlight_searches)
-        self.search_bt.pack(side=tk.TOP, fill=tk.X)
+        self.search_bt.pack(side=tk.LEFT)
+        self.search_f.pack(fill=tk.X)
+
         self.view_bt = ttk.Button(self.display_frame, text='View in browser',
                                   command=self.view_in_browser)
-        self.view_bt.pack(side=tk.TOP, fill=tk.X)
-        self.display_txt = tkinter.scrolledtext.ScrolledText(self.display_frame)
+        self.view_bt.pack(fill=tk.X)
+        self.display_txt = tk.scrolledtext.ScrolledText(self.display_frame)
         self.display_txt.configure(state='disabled',
                                    font=('TkDefaultFont', 12))
-        self.display_txt.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.display_txt.pack(fill=tk.BOTH, expand=True)
         self.attachment_bt = ttk.Button(self.display_frame,
                                         text='Open attachment(s)',
                                         command=self.view_attached)
-        self.attachment_bt.pack(side=tk.TOP, fill=tk.X)
+        self.attachment_bt.pack(fill=tk.X)
         self.display_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, anchor='nw')
 
-        # self.attachment_display = ScrollFrame(self.display_frame, 320)
-        # self.attachment_display.pack(fill=tk.X)
+        self.attachment_display = ScrollFrame(self.display_frame)
+        self.attachment_display.pack(fill=tk.X)
 
-    def add_button(self, label, text_to_display, can_view, attach_ids=None):
+    def add_email_info(self, **kwargs):
+        email_info = 'Email information:\n'
+        for key, value in kwargs.items():
+            email_info = ''.join( (email_info, f'{key}: {value}\n' ) )
+        
+        self.email_info_sv.set(email_info)
+
+    def add_button(self, label, text_to_display, can_view, attach_ids=None,
+                   email_info={}):
         self.scroll_frame.add_button(label, self.display, text_to_display,
-                                     can_view, attach_ids)
+                                     can_view, attach_ids, email_info)
 
-    def display(self, text, can_view, attach_ids):
+    def display(self, text, can_view, attach_ids, email_info):
+        '''Displays email information.
+        Keyword arguments:
+        email_info -- must be a dict of key/pair arguments for email information.
+        '''
         if not can_view:
             self.view_bt.config(state=tk.DISABLED)
         else:
@@ -159,6 +197,7 @@ class ScrollingFrameAndView(tk.Frame):
         else:
             self.attachment_bt.config(state=tk.DISABLED)
 
+        self.add_email_info(**email_info)
         if text is None:
             text = '<<This email has no text -- Python Email Client Message>>'
 
@@ -176,7 +215,7 @@ class ScrollingFrameAndView(tk.Frame):
 
     def highlight_searches(self, event=None):
         self.display_txt.tag_remove('found', '1.0', tk.END)
-        txt = self.search_txt.get()
+        txt = self.search_en.get()
         if txt:
             pos = '1.0'
             count = 0
@@ -300,7 +339,7 @@ class OverviewPane(ttk.Panedwindow):
         # Tag functions
         self.previous = ttk.Labelframe(self,
                                        text='Grouped Tags:')
-        self.prev_searches = ScrollFrame(self.previous, 320)
+        self.prev_searches = ScrollFrame(self.previous)
         self.prev_searches.pack(fill=tk.BOTH, expand=True)
 
         # Configure paned window
@@ -343,13 +382,9 @@ class OverviewPane(ttk.Panedwindow):
         self.search_bt.configure(state=tk.DISABLED)
 
 class OverMenu(tk.Menu):
-    def __init__(self, parent, conv_func, reset_func, version):
+    def __init__(self, parent, reset_func):
         tk.Menu.__init__(self, parent)
-        self.version = version
-        self.conv_func = conv_func
         self.reset_func = reset_func
-        self.add_command(label='Refresh Mailbox', 
-                         command=self.conv_func)
 
         self.advmenu = tk.Menu(self, tearoff=0)
         self.advmenu.add_command(label='Reset Database',
@@ -365,7 +400,7 @@ class OverMenu(tk.Menu):
         tk.messagebox.showinfo(
             'About', 
             message='Made by Leo Qi!'
-                    '\nVersion: ' + self.version)
+                    '\nVersion: ' + config.VERSION)
 
 def center(toplevel):
     toplevel.update_idletasks()

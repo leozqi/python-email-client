@@ -8,6 +8,7 @@ import tkinter.scrolledtext
 from threading import Thread, active_count
 from datetime import datetime
 import gc
+import time
 
 # Custom modules:
 import parse_mail
@@ -16,7 +17,8 @@ from database import *
 from email_conn import *
 from gui_elements import *
 
-VERSION = utils.get_config()['version']
+import config
+VERSION = config.VERSION
 
 class Application():
     def __init__(self):
@@ -36,6 +38,7 @@ class Application():
         self.w_progress_br = None
 
         self.database = EmailDatabase(self.put_msg, self.add_bar)
+
         # Arrange the basics of window
         self.root = tk.Tk()
         self.root.geometry('1000x750')
@@ -49,17 +52,19 @@ class Application():
             anchor=tk.W)
         self.fTop = tk.Frame(self.root)
 
-        self.root.config(menu=OverMenu(self.root, self.conv_mail_wrapper,
-                                       self.database.reset_db, VERSION))
+        self.root.config(menu=OverMenu(self.root, self.database.reset_db))
 
-        self.pane = OverviewPane(self.fTop, self.search_wrapper, VERSION,
-                                 self.show_tags_wrapper, self.show_wrapper,
+        self.pane = OverviewPane(self.fTop,
+                                 lambda: self.wrapper(self._search, search_val),
+                                 VERSION,
+                                 lambda: self.wrapper(self._show_tags, tags),
+                                 lambda: self.wrapper(self.display_mail),
                                  lambda: self.wrapper(self._conv_mail))
         self.pane.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrolling_frame = ScrollingFrameAndView(self.fTop)
         self.scrolling_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
         self.fTop.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
         # Tags
         self.tags = []
         database_tags = self.database.load_json()
@@ -71,13 +76,12 @@ class Application():
 
         # Updater
         self.tasks.append(Thread(target=self.update_status))
-        self.tasks[-1].setDaemon(True)
+        self.tasks[-1].daemon = True
         self.tasks[-1].start()
-        self.root.mainloop()
 
     def close(self):
         for task in self.tasks:
-            if task.is_alive():
+            if task.is_alive() and not task.isDaemon():
                 error_msg = 'Cannot close, task in progress.'
                 self.put_msg(error_msg)
                 tk.messagebox.showwarning(
@@ -145,10 +149,6 @@ class Application():
         else:
             self.put_msg('No emails to save...')
 
-    def conv_mail_wrapper(self):
-        self.tasks.append(Thread(target=self._conv_mail))
-        self.tasks[-1].start()
-
     def _conv_mail(self): # convienence class for user
         '''Convienent pre-set method for the Get_Mail button
         Uses other defined methods during operation.
@@ -162,20 +162,6 @@ class Application():
             '\nEmails loaded and saved.'
             '\nUse the search function to group and view emails')
         tk.messagebox.showinfo('Info:', 'Finished getting all emails.')
-
-    def show_wrapper(self):
-        '''Wraps the display_mail method in a thread for easy access.
-        The display_mail method indexes and displayes tagged emails
-        from the EmailDatabase() self.database object.
-        '''
-        self.tasks.append(Thread(target=self.display_mail))
-        self.tasks[-1].start()
-
-    def search_wrapper(self, search_val=None):
-        '''Wraps the _search function in a thread for easy access'''
-        self.tasks.append(Thread(target=self._search,
-                          args=(search_val,)))
-        self.tasks[-1].start()
 
     def _search(self, search_val):
         '''
@@ -253,6 +239,7 @@ class Application():
 
     def display_mail(self, tags=None):
         '''Displays mail onto scrolling_frame and updates grouped tags.
+        Wraps on top of self._display_mail
         Keyword arguments:
         tags -- the tags provided to update and display. Default is
                 None, which gets all emails.
@@ -309,10 +296,6 @@ class Application():
 
         self.database.store_tags(tags)
 
-    def show_tags_wrapper(self, tags):
-        self.tasks.append(Thread(target=self._show_tags, args=(tags,)))
-        self.tasks[-1].start()
-
     def _show_tags(self, tags):
         self.scrolling_frame.reset_frame()
         self.root.update_idletasks()
@@ -342,14 +325,20 @@ class Application():
                         can_view = True
                     break
 
+            email_info = {
+                'Subject:': utils.parse_complete_sub(email[0].get('Subject')),
+                'Date sent:': email[0].get('Date'),
+                'To:': utils.parse_complete_sub(email[0].get('To')),
+                'From:': utils.parse_complete_sub(email[0].get('From'))}
+
             if attached is not None:
                 self.scrolling_frame.add_button(
                     utils.parse_sub(email[0].get('Subject')),
-                    payload, can_view, attached)
+                    payload, can_view, attached, email_info)
             else:
                 self.scrolling_frame.add_button(
                     utils.parse_sub(email[0].get('Subject')),
-                    payload, can_view)
+                    payload, can_view, None, email_info)
 
     def put_msg(self, msg):
         '''Put message (msg) into the queue to be shown by status bar'''
@@ -360,65 +349,67 @@ class Application():
         self.bar_log.put(amt)
 
     def update_status(self):
-        '''Refreshes self.root with status of various infos'''
-        task_alive = False
-        for task in self.tasks: # TODO: make task a tuple of (task_name, actual thread tasks)
-            if task.is_alive() and not task.isDaemon():
-                task_alive = True
-                break
-        
-        if task_alive:
-            if self.progress_w is None:
-                self.progress_w = tk.Toplevel()
-                self.progress_w.geometry('300x50')
-                self.progress_w.title('Task running...')
-                self.progress_w.iconbitmap('favicon.ico')
-                self.w_status = tk.StringVar()
-                self.w_status.set(' ')
-                self.w_status_lb = ttk.Label(self.progress_w,
-                                             textvariable=self.w_status)
-                self.w_progress_br = ttk.Progressbar(self.progress_w,
-                                                     orient=tk.HORIZONTAL,
-                                                     mode='determinate',
-                                                     maximum=100)
-                self.w_progress_br['value'] = 0
-                self.w_status_lb.pack(fill=tk.X)
-                self.w_progress_br.pack(fill=tk.X)
-                center(self.progress_w)
+        while True:
+            '''Refreshes self.root with status of various infos'''
+            task_alive = False
+            for task in self.tasks: # TODO: make task a tuple of (task_name, actual thread tasks)
+                if task.is_alive() and not task.isDaemon():
+                    task_alive = True
+                    break
             
-            set_val = ''
-            if not self.log.empty():
-                while not self.log.empty():
-                    set_val = self.log.get()
-                    self.log.task_done()
-                self.w_status.set(set_val)
-
-            add_val = 0
-            if not self.bar_log.empty():
-                while not self.bar_log.empty():
-                    add_val += self.bar_log.get()
-                    self.bar_log.task_done()
+            if task_alive:
+                if self.progress_w is None:
+                    self.progress_w = tk.Toplevel()
+                    self.progress_w.geometry('300x50')
+                    self.progress_w.title('Task running...')
+                    self.progress_w.iconbitmap('favicon.ico')
+                    self.w_status = tk.StringVar()
+                    self.w_status.set(' ')
+                    self.w_status_lb = ttk.Label(self.progress_w,
+                                                textvariable=self.w_status)
+                    self.w_progress_br = ttk.Progressbar(self.progress_w,
+                                                        orient=tk.HORIZONTAL,
+                                                        mode='determinate',
+                                                        maximum=100)
+                    self.w_progress_br['value'] = 0
+                    self.w_status_lb.pack(fill=tk.X)
+                    self.w_progress_br.pack(fill=tk.X)
+                    center(self.progress_w)
                 
-                if self.w_progress_br['value'] + add_val > 100:
-                    self.w_progress_br['value'] = 100
-                else:
-                    self.w_progress_br['value'] += add_val
+                set_val = ''
+                if not self.log.empty():
+                    while not self.log.empty():
+                        set_val = self.log.get()
+                        self.log.task_done()
+                    self.w_status.set(set_val)
 
-        elif self.progress_w is not None:
-            self.w_status_lb.destroy()
-            self.w_progress_br.destroy()
-            self.progress_w.destroy()
-            self.progress_w = None
-            self.w_status = None
-            self.w_status_lb = None
-            self.w_progress_br = None
+                add_val = 0
+                if not self.bar_log.empty():
+                    while not self.bar_log.empty():
+                        add_val += self.bar_log.get()
+                        self.bar_log.task_done()
+                    
+                    if self.w_progress_br['value'] + add_val > 100:
+                        self.w_progress_br['value'] = 100
+                    else:
+                        self.w_progress_br['value'] += add_val
 
-        active_threads = active_count()
-        if self.pane.get_thread_cnt() != active_threads:
-            self.pane.set_thread_cnt(active_threads)
+            elif self.progress_w is not None:
+                self.w_status_lb.destroy()
+                self.w_progress_br.destroy()
+                self.progress_w.destroy()
+                self.progress_w = None
+                self.w_status = None
+                self.w_status_lb = None
+                self.w_progress_br = None
 
-        self.root.update_idletasks()
-        self.root.after(20, self.update_status)
+            active_threads = active_count()
+            if self.pane.get_thread_cnt() != active_threads:
+                self.pane.set_thread_cnt(active_threads)
+
+            self.root.update_idletasks()
+            time.sleep(0.02)
 
 if __name__ == '__main__':
     app=Application()
+    app.root.mainloop()

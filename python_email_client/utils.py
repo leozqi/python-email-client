@@ -37,6 +37,10 @@ def parse_sub(subject):
         return ''.join((str(decoded)[:40], '...')).encode(encoding='ascii',
                                                         errors='ignore')
 
+def parse_complete_sub(subject):
+    decoded = make_header(decode_header(subject))
+    return str(decoded).encode(encoding='ascii', errors='ignore')
+
 def parse_payload(payload):
     decoded = payload.encode(encoding='ascii', errors='ignore').decode('utf-8')
     decoded = quopri.decodestring(decoded).decode(encoding='utf-8', errors='ignore')
@@ -78,4 +82,4 @@ def get_store_path():
     if platform.system() == 'Windows':
         return path.join(path.expanduser('~'), 'AppData\\Local\\Python Email')
     else:
-        return path.join(path.expanduser('~'), 'Python Email')
+        return path.join(path.expanduser('~'), 'Python Email')               

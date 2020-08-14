@@ -15,6 +15,18 @@ The database will get emails from after the last scan date. If there is no scan 
 
 **Load dates should be saved after each get.**
 
+### Storage Database [Not yet implemented]
+
+The storage database (`manager.db`) is intended to replace the `data.json` file storing dates and configuration info. The new table in the database should store profile information in a table called `profiles`. This data should include:
+
+* The profile name, under the `name` field.
+* Email under the `email` field.
+* Password, under the `password` field.
+* Imap Server address, under the `imap` field
+* port, under the `port` field.
+
+This info should be created for each new profile created by the tkinter program.
+
 ### Displaying Emails [Not yet implemented]
 
 Emails should be under "groups" (referred to tags in the code) that mimic folders. Two default folders should be "Read", "Unread", and "All". Clicking any group should bring up all the emails in that group. New groups should be created by a wizard/prompt/button that creates groups based on keywords, email date sent, to/from address, or a combination of these factors.
@@ -31,12 +43,13 @@ Emails should be under "groups" (referred to tags in the code) that mimic folder
 |Have dynamic loading: based on which emails the user requests, load ONLY THOSE from saved files|July 2020| - [ ]|
 |Order sorted emails either descending or ascending from the sqlite3 database.|July 2020| - [ ]|
 |Toggle checkbutton for whether or not all search terms should match for an email|July 2020| - [x]|
-|Store datetime.datetime last date stored value AND tag strings together in data.json|July 2020| - [x]|
-|Create user profile selection system and store the gathered usernames/passwords/email servers through keyring and the data.json file|Aug 8 2020| - [ ]|
+|~~Store datetime.datetime last date stored value AND tag strings together in data.json|July 2020~~| - [x]|
+|~~Create user profile selection system and store the gathered usernames/passwords/email servers through keyring and the data.json file~~|Aug 8 2020| - [ ]|
 |Implement GMAIL compatibility with python-oauth2|Aug 8 2020| - [ ]|
 |Return a tuple of (id, email) messages by the database instead of just a email|Aug 8 2020| - [x]|
 |Allow viewing an email's to email address, from email address, subject line and date sent|Aug 9 2020| - [ ]|
 |Implement Displaying Email attachments|Aug 11 2020| - [x]|
+|Implement Storage Database|Aug 14 2020| - [ ]|
 
 **Bugs:**
 |Issue|Date|Fixed?|
@@ -44,15 +57,4 @@ Emails should be under "groups" (referred to tags in the code) that mimic folder
 |Search values do not show in OverviewPane object|Aug 8 2020| - [x]|
 |Certain characters cannot be displayed by TKinter|Aug 8 2020| - [x]|
 |Displaying emails from tags lags the application|Aug 9 2020| - [x]|
-
-### Old snippets!
-
-Old view file using data URL (failed)
-
-    def view_in_browser(self):
-        txt = self.display_txt.get(1.0, tk.END)
-        html = urllib.parse.quote(txt, safe='')
-        url = 'data:text/html,' + html
-        # b = bytes(txt, 'utf-8')
-        # url = 'data:text/html;base64,' + base64.b64encode(b).decode('utf-8')
-        webbrowser.get(self.config['browser']).open(url)
+|Scrollbar is sticky near the top of a window due to the new Scrollbar random scrolling fix|Aug 14 2020| - [ ]|

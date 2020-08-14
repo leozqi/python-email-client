@@ -12,6 +12,9 @@ import json
 import tkinter as tk
 import tkinter.messagebox
 
+# Own functions
+import config
+
 class EmailDatabase():
     def __init__(self, print_func=None, bar_func=None):
         '''
@@ -71,7 +74,7 @@ class EmailDatabase():
                 pass
             db = self._load_db()
             with open('schema.sql', 'r') as f:
-                db.executescript(f.read())
+                db.executescript(schema.SCHEMA)
             db.commit()
             return db
 
