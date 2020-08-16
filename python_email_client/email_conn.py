@@ -6,20 +6,38 @@ import utils
 import tkinter as tk
 import socket
 
+class LoginError():
+    def __init__(self, error_msg=''):
+        self.error_msg = error_msg
+
 class EmailConnection():
-    def __init__(self, print_func=None):
-        '''
-        Defines an email connection to our IMAP server.
+    def __init__(self, config, print_func=None):
+        '''Defines an email connection to our IMAP server.
         Requires a valid dotenv file to be present.
         Be sure to delete the object afterwards to log out of the server.
 
         Keyword arguments
+        config -- a dictionary containing configuration values:
+            * config['email'] is the email address of profile
+            * config['pswrd'] is the email account's password.
+            * config['imap'] is the email account's imap server.
+            * config['port'] is the email imap server's port (eg. 993)
         print_func -- An Application() class's put_msg function
         '''
-        self.get_config()
+        try:
+            self.email = config['email']
+            self.pswrd = config['password']
+            self.imap = config['imap']
+            self.port = config['port']
+        except KeyError:
+            raise ValueError('Improper configuration passed to EmailConnection')
+
         try:
             self.conn = IMAP4_SSL(self.imap, self.port)
-            self.conn.login(self.email, self.pswrd)
+            try:
+                self.conn.login(self.email, self.pswrd)
+            except:
+                self.conn = LoginError()
         except socket.gaierror:
             self.conn = None
 
@@ -33,16 +51,8 @@ class EmailConnection():
             except:
                 pass
 
-    def get_config(self):
-        self.config = utils.get_config()
-        self.email = self.config['email']
-        self.pswrd = self.config['pswrd']
-        self.imap = self.config['imap']
-        self.port = self.config['port']
-
     def search_for_mailbox(self, sort_folder):
-        '''
-        Searches for the presence of a mailbox/folder in the account.
+        '''Searches for the presence of a mailbox/folder in the account.
         CURRENTLY UNUSED
         '''
         status, response = self.conn.list()
@@ -55,7 +65,7 @@ class EmailConnection():
 ## End class EmailConnection ##
 
 class EmailGetter:
-    def __init__(self, conn, threads, print_func, bar_func=None):
+    def __init__(self, conn, threads, config, print_func, bar_func=None):
         """
         Keyword arguments:
         conn -- An EmailConnection connection (EmailConnection.conn)
@@ -71,6 +81,7 @@ class EmailGetter:
         self.print = print_func
         self.bar = bar_func
         self.emails = None
+        self.config = config
 
     def __del__(self):
         self.active = False
@@ -130,12 +141,12 @@ class EmailGetter:
             return False
 
     def fetch(self, inc_amt):
-        """
+        '''A worker function that logs in and retrieves emails from a source.
         Keyword arguments:
         inc_amt -- the amount that progress bar should 
                    increment for message proccessed.
-        """
-        email = EmailConnection()
+        '''
+        email = EmailConnection(self.config)
         conn = email.conn
         try:
             conn.select('INBOX')

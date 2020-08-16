@@ -3,7 +3,7 @@ import tkinter.messagebox
 from tkinter import ttk
 import tkinter.scrolledtext
 import gc
-import config
+import infos
 
 # Only ScrollingFrameAndView.view_in_browser below
 import webbrowser
@@ -13,6 +13,18 @@ import os
 
 # Only ScrollingFrameAndView.view_attached below
 import subprocess
+
+def center(toplevel):
+    toplevel.update_idletasks()
+
+    screen_width = toplevel.winfo_screenwidth()
+    screen_height = toplevel.winfo_screenheight()
+
+    size = tuple(int(_) for _ in toplevel.geometry().split('+')[0].split('x'))
+    x = screen_width/2 - size[0]/2
+    y = screen_height/2 - size[1]/2
+
+    toplevel.geometry("+%d+%d" % (x, y))
 
 class ScrollFrame(tk.Frame):
     def __init__(self, parent, scwidth=None):
@@ -105,22 +117,46 @@ class ScrollFrame(tk.Frame):
 class ScrollText(tk.scrolledtext.ScrolledText):
     def __init__(self, parent):
         tk.scrolledtext.ScrolledText.__init__(self, parent)
-        self.configure(state='disabled',
-                       font=('TkDefaultFont', 12))
+        self.config(state='disabled',
+                    font=('TkDefaultFont', 12))
     
-    def show_txt(self, text, default=' '):
+    def show_txt(self, text):
         if text is None:
             text = default
 
-        self.display_txt.config(state='normal')
-        self.display_txt.delete('1.0', 'end')
-        self.display_txt.insert('1.0', text)
-        self.display_txt.config(state='disabled')
+        self.config(state='normal')
+        self.delete('1.0', 'end')
+        self.insert('1.0', text)
+        self.config(state='disabled')
+    
+    def clear_txt(self):
+        self.config(state='normal')
+        self.delete('1.0', 'end')
+        self.config(state='disabled')
+
+class PopupDialog(tk.Toplevel):
+    def __init__(self, title='Dialog', geometry='600x100'):
+        '''Creates a popup dialog.
+        Keyword arguments:
+        geometry -- the width of the window, as a string: eg '1920x1680'
+        '''
+        tk.Toplevel.__init__(self)
+        self.geometry(geometry)
+        self.title(title)
+        self.iconbitmap('favicon.ico')
+        self.resizable(width=False, height=False)
+        center(self)
+        self.update_idletasks()
+    
+    def delete(self):
+        self.update_idletasks()
+        for child in self.winfo_children():
+            child.destroy()
+        self.destroy()
 
 class ScrollingFrameAndView(tk.Frame):
     def __init__(self, parent):
         tk.Frame.__init__(self, parent)
-        self.config = utils.get_config()
         self.save_path = os.path.join(utils.get_store_path(), 'resources/temp/')
         if not os.path.exists(self.save_path):
             os.makedirs(self.save_path)
@@ -136,7 +172,7 @@ class ScrollingFrameAndView(tk.Frame):
         self.display_frame = ttk.Labelframe(self, text='Email Viewer:')
 
         self.email_info_sv = tk.StringVar()
-        self.email_info_sv.set(' ')
+        self.email_info_sv.set('Email Information:')
         self.email_info_lb = ttk.Label(self.display_frame,
                                        textvariable=self.email_info_sv)
         self.email_info_lb.pack(fill=tk.X)
@@ -261,126 +297,6 @@ class ScrollingFrameAndView(tk.Frame):
             else:
                 os.startfile(filename)
 
-class OverviewPane(ttk.Panedwindow):
-    def __init__(self, parent, search_func, version, tag_func, show_func,
-                 conv_func):
-        ttk.Panedwindow.__init__(self, parent, orient=tk.VERTICAL)
-        # Overview
-        self.overview = ttk.Labelframe(self, text='Overview')
-        self.search_func = search_func
-        self.tag_func = tag_func
-        self.show_func = show_func
-        self.status = tk.StringVar()
-        self.status.set(
-            f'PythonEmail Client version {version}.'
-            '\nPress the "Get Emails" button to get emails.'
-        )
-        self.status_lb = ttk.Label(self.overview, textvariable=self.status)
-        self.status_lb.pack(fill=tk.X)
-
-        self.thread_num = tk.StringVar()
-        self.thread_num.set('1')
-        self.thread_lb = ttk.Label(self.overview, textvariable=self.thread_num)
-        self.thread_lb.pack(fill=tk.X)
-        self.refresh_bt = ttk.Button(self.overview, text='Sync with server',
-                                     command=conv_func)
-        self.refresh_bt.pack(fill=tk.X)
-        self.show_bt = ttk.Button(self.overview, text='Show All Emails!',
-                                  command=self.show_func)
-        self.show_bt.pack(fill=tk.X)
-
-        # Search functions
-        self.search = ttk.Labelframe(self, text='Search')
-        self.search_lb = ttk.Label(self.search,
-                                   text='Enter comma separated search '
-                                        'values to search for:')
-        self.search_lb.pack(fill=tk.X)
-        self.search_en = ttk.Entry(self.search)
-        self.search_en.pack(fill=tk.X)
-        self.search_bt = ttk.Button(self.search, text='Search!',
-                                    command= lambda: self.search_func(
-                                        self.search_en.get()))
-        self.search_bt.pack(fill=tk.X)
-
-        self.search_sub = tk.IntVar()
-        self.search_to = tk.IntVar()
-        self.search_from = tk.IntVar()
-        self.search_all = tk.IntVar()
-        self.search_sub_ch = tk.Checkbutton(self.search,
-                                            text='Search subject lines?',
-                                            variable=self.search_sub,
-                                            onvalue=1, offvalue=0)
-        self.search_sub_ch.pack()
-        self.search_to_ch = tk.Checkbutton(self.search,
-                                           text='Search "to" lines?',
-                                           variable=self.search_to,
-                                           onvalue=1, offvalue=0)
-        self.search_to_ch.pack()
-        self.search_from_ch = tk.Checkbutton(self.search,
-                                             text='Search "from" lines?',
-                                             variable=self.search_from,
-                                             onvalue=1, offvalue=0)
-        self.search_from_ch.pack()
-        self.search_all_ch = tk.Checkbutton(self.search,
-                                         text='All terms must match?',
-                                         variable=self.search_all,
-                                         onvalue=1, offvalue=0)
-        self.search_all_ch.pack()
-
-        self.search_fd_lb = ttk.Label(self.search, text='Search values:')
-        self.search_fd_lb.pack(fill=tk.X)
-
-        self.search_terms = tk.StringVar()
-        self.search_terms.set(' ')
-        self.search_terms_lb = ttk.Label(self.search,
-                                         textvariable=self.search_terms)
-        self.search_terms_lb.pack(fill=tk.X)
-
-        # Tag functions
-        self.previous = ttk.Labelframe(self,
-                                       text='Grouped Tags:')
-        self.prev_searches = ScrollFrame(self.previous)
-        self.prev_searches.pack(fill=tk.BOTH, expand=True)
-
-        # Configure paned window
-        self.add(self.overview)
-        self.add(self.search)
-        self.add(self.previous)
-
-    def add_button(self, label, tag):
-        self.prev_searches.add_button(label, self.tag_func, tag)
-
-    def reset_frame(self):
-        self.prev_searches.reset_frame()
-
-    def set_status(self, txt):
-        self.status.set(txt)
-
-    def set_thread_cnt(self, cnt):
-        self.thread_num.set(str(cnt))
-
-    def set_search_terms(self, searches):
-        string = ''
-        for search in searches:
-            string = "".join((string, search, '\n'))
-        self.search_terms.set(string)
-
-    def get_checkboxes(self):
-        return (self.search_sub.get(), self.search_to.get(),
-                self.search_from.get(), self.search_all.get())
-
-    def get_thread_cnt(self):
-        return int(self.thread_num.get())
-
-    def clear_entry(self):
-        self.search_en.delete(0, tk.END)
-
-    def enable_search(self):
-        self.search_bt.configure(state=tk.NORMAL)
-
-    def disable_search(self):
-        self.search_bt.configure(state=tk.DISABLED)
-
 class OverMenu(tk.Menu):
     def __init__(self, parent, reset_func):
         tk.Menu.__init__(self, parent)
@@ -402,14 +318,103 @@ class OverMenu(tk.Menu):
             message='Made by Leo Qi!'
                     '\nVersion: ' + config.VERSION)
 
-def center(toplevel):
-    toplevel.update_idletasks()
+class PopupProfileDialog():
+    def __init__(self, title, profiles, default=None):
+        self.popup = PopupDialog(title=title, geometry='600x200')
+        labels = ['Profile Name (alphanumeric): ',
+                  'Email address: ',
+                  'Password: ',
+                  'IMAP server: ',
+                  'IMAP server port (default 993): ']
+        self.dialog_labels = []
+        self.dialog_entries = []
+        self.dialog_frames = []
+        self.info = []
 
-    screen_width = toplevel.winfo_screenwidth()
-    screen_height = toplevel.winfo_screenheight()
+        for label in labels:
+            self.dialog_frames.append(ttk.Frame(self.popup))
+            self.dialog_frames[-1].pack(fill=tk.X)
+            self.dialog_labels.append(ttk.Label(self.dialog_frames[-1],
+                                                text=label,
+                                                width=34))
+            self.dialog_labels[-1].pack(side=tk.LEFT)
+            self.dialog_entries.append(ttk.Entry(self.dialog_frames[-1]))
+            self.dialog_entries[-1].pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-    size = tuple(int(_) for _ in toplevel.geometry().split('+')[0].split('x'))
-    x = screen_width/2 - size[0]/2
-    y = screen_height/2 - size[1]/2
+        self.spacer = ttk.Label(self.popup, text=' ')
+        self.spacer.pack()
+        self.submit_bt = ttk.Button(self.popup, text='Submit',
+                                    command=lambda: self.validate_profile(
+                                    self.dialog_entries, profiles))
+        self.submit_bt.pack()
+        
+        if default is not None and len(default) <= 4:
+            for n in range(len(default)):
+                self.dialog_entries[n].insert(0, default[n])
 
-    toplevel.geometry("+%d+%d" % (x, y))
+        self.dialog_entries[4].insert(0, '993')
+
+    def validate_profile(self, entries, profiles):
+        entry_values = []
+        for entry in entries:
+            entry_values.append(entry.get())
+
+        if utils.is_whitespace(entry_values[0]) or (entry_values[0] in profiles):
+            tk.messagebox.showerror('Error', 'The profile name must be unique'
+                                             ' and not blank.')
+            entries[0].delete(0, tk.END)
+            self.popup.lift()
+            return False
+
+        if ( (not '@' in entry_values[1]) or utils.is_whitespace(entry_values[1])
+                or (' ' in entry_values[1]) ):
+            tk.messagebox.showerror('Error', 'Email address field must be valid'
+                                             ' and without spaces.')
+            entries[1].delete(0, tk.END)
+            self.popup.lift()
+            return False
+
+        if utils.is_whitespace(entry_values[2]):
+            tk.messagebox.showerror('Error', 'Password field must not be blank.')
+            entries[2].delete(0, tk.END)
+            self.popup.lift()
+            return False
+
+        if utils.is_whitespace(entry_values[3]) or (' ' in entry_values[3]):
+            tk.messagebox.showerror('Error', 'IMAP server address must be valid.')
+            entries[3].delete(0, tk.END)
+            self.popup.lift()
+            return False
+
+        if not entry_values[4].isdigit():
+            tk.messagebox.showerror('Error', 'IMAP port must be all digits.')
+            entries[4].delete(0, tk.END)
+            self.popup.lift()
+            return False
+
+        self.info = (*entry_values, ) # unpack into tuple
+        self.popup.delete()
+        return True
+
+class PopupSelectDialog():
+    def __init__(self, title, choices):
+        self.popup = PopupDialog(title=title, geometry='400x100')
+        self.result = tk.StringVar()
+        self.result.set(' ')
+        self.label = ttk.Label(self.popup,
+                               text='Select profile to use this session')
+        self.label.pack(fill=tk.X)
+        self.combo = ttk.Combobox(self.popup, textvariable=self.result,
+                                  values=choices)
+        self.combo.config(state='readonly')
+        self.combo.pack(fill=tk.X)
+        self.submit_bt = ttk.Button(self.popup, text='Submit', command=self.submit)
+        self.submit_bt.pack()
+
+    def submit(self):
+        if self.result == ' ':
+            tk.messagebox.showerror('Error', 'No choice selected.')
+            return False
+
+        self.popup.delete()
+        return True

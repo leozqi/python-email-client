@@ -17,11 +17,12 @@ from database import *
 from email_conn import *
 from gui_elements import *
 
-import config
-VERSION = config.VERSION
+import infos
+VERSION = infos.VERSION
 
-class Application():
+class Application(tk.Tk):
     def __init__(self):
+        tk.Tk.__init__(self)
         # Application objects
         self.tasks = []
         self.log = Queue()
@@ -37,49 +38,128 @@ class Application():
         self.w_status_lb = None
         self.w_progress_br = None
 
-        self.database = EmailDatabase(self.put_msg, self.add_bar)
+        self.database = EmailDatabase(self.wait_window, self.put_msg,
+                                      self.add_bar)
 
         # Arrange the basics of window
-        self.root = tk.Tk()
-        self.root.geometry('1000x750')
-        self.root.title(''.join( ('PythonMail Client v.', VERSION) ))
-        self.root.iconbitmap('favicon.ico')
-        self.root.protocol('WM_DELETE_WINDOW', self.close)
+        self.geometry('1000x750')
+        self.title(''.join( ('PythonMail Client v.', VERSION) ))
+        self.iconbitmap('favicon.ico')
+        self.protocol('WM_DELETE_WINDOW', self.close)
         self.style = ttk.Style()
         self.style.configure(
             'Status.TLabel',
             relief=tk.SUNKEN,
             anchor=tk.W)
-        self.fTop = tk.Frame(self.root)
+        self.config(menu=OverMenu(self, self.database.reset_db))
 
-        self.root.config(menu=OverMenu(self.root, self.database.reset_db))
+        # Left paned window \
+        self.left_pw = ttk.Panedwindow(self, orient=tk.VERTICAL)
 
-        self.pane = OverviewPane(self.fTop,
-                                 lambda: self.wrapper(self._search, search_val),
-                                 VERSION,
-                                 lambda: self.wrapper(self._show_tags, tags),
-                                 lambda: self.wrapper(self.display_mail),
-                                 lambda: self.wrapper(self._conv_mail))
-        self.pane.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.scrolling_frame = ScrollingFrameAndView(self.fTop)
+        # Overview -\
+        self.view_lf = ttk.Labelframe(self.left_pw, text='Overview')
+        self.view_sv = tk.StringVar()
+        self.view_sv.set(
+            f'PythonEmail Client version {VERSION}.'
+            '\nPress the "Get Emails" button to get emails.')
+        self.view_lb = ttk.Label(self.view_lf,
+                                      textvariable=self.view_sv)
+        self.view_lb.pack(fill=tk.X)
+        self.view_thnum = tk.StringVar()
+        self.view_thnum.set('1')
+        self.view_thlb = ttk.Label(self.view_lf,
+                                        textvariable=self.view_thnum)
+        self.view_thlb.pack(fill=tk.X)
+        self.view_rfbt = ttk.Button(self.view_lf,
+                                    text='Sync with server',
+                                    command=lambda: self.wrapper(
+                                        self._conv_mail))
+        self.view_rfbt.pack(fill=tk.X)
+        self.view_shbt = ttk.Button(self.view_lf, text='Show All Emails!',
+                                    command=lambda: self.wrapper(
+                                        self.display_mail))
+        self.view_shbt.pack(fill=tk.X)
+        self.view_upbt = ttk.Button(self.view_lf, text='Edit profile',
+                                    command=self.database.edit_profile)
+        self.view_upbt.pack(fill=tk.X)
+
+        # Search -\
+        self.search_lf = ttk.Labelframe(self.left_pw, text='Search')
+        self.search_lb = ttk.Label(self.search_lf,
+                                   text='Enter comma separated search'
+                                        ' values to search for:')
+        self.search_lb.pack(fill=tk.X)
+        self.search_en = ttk.Entry(self.search_lf)
+        self.search_en.pack(fill=tk.X)
+        self.search_bt = ttk.Button(self.search_lf, text='Search!',
+                                    command= lambda: self.wrapper(
+                                        self._search, self.search_en.get()))
+        self.search_bt.pack(fill=tk.X)
+
+        self.search_sub = tk.IntVar()
+        self.search_to = tk.IntVar()
+        self.search_from = tk.IntVar()
+        self.search_all = tk.IntVar()
+        self.search_sub_ch = tk.Checkbutton(self.search_lf,
+                                            text='Search subject lines?',
+                                            variable=self.search_sub,
+                                            onvalue=1, offvalue=0)
+        self.search_sub_ch.pack()
+        self.search_to_ch = tk.Checkbutton(self.search_lf,
+                                           text='Search "to" lines?',
+                                           variable=self.search_to,
+                                           onvalue=1, offvalue=0)
+        self.search_to_ch.pack()
+        self.search_from_ch = tk.Checkbutton(self.search_lf,
+                                             text='Search "from" lines?',
+                                             variable=self.search_from,
+                                             onvalue=1, offvalue=0)
+        self.search_from_ch.pack()
+        self.search_all_ch = tk.Checkbutton(self.search_lf,
+                                         text='All terms must match?',
+                                         variable=self.search_all,
+                                         onvalue=1, offvalue=0)
+        self.search_all_ch.pack()
+
+        self.search_fd_lb = ttk.Label(self.search_lf, text='Search values')
+        self.search_fd_lb.pack(fill=tk.X)
+        self.search_terms = tk.StringVar()
+        self.search_terms.set(' ')
+        self.search_terms_lb = ttk.Label(self.search_lf,
+                                         textvariable=self.search_terms)
+        self.search_terms_lb.pack(fill=tk.X)
+
+        # Tag functions -\
+        self.previous_lf = ttk.Labelframe(self.left_pw, text='Grouped Tags')
+        self.prev_searches = ScrollFrame(self.previous_lf)
+        self.prev_searches.pack(fill=tk.BOTH, expand=True)
+
+        # Configure paned window
+        self.left_pw.add(self.view_lf)
+        self.left_pw.add(self.search_lf)
+        self.left_pw.add(self.previous_lf)
+        self.left_pw.pack(side=tk.LEFT, fill=tk.BOTH)
+
+        # Scrolling Frame \
+        self.scrolling_frame = ScrollingFrameAndView(self)
         self.scrolling_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.fTop.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        # Tags
+        self.database.configure_profile()
+        # Tags \
         self.tags = []
-        database_tags = self.database.load_json()
-        if database_tags is not None:
-            if 'tags' in database_tags:
-                database_tags = database_tags['tags']
-                if not database_tags.isspace() and database_tags != '':
-                    self.put_tags_wrapper(database_tags)
+        profile_info = self.database.load_profile_info()
+        if profile_info['tags'] is not None:
+            database_tags = profile_info['tags']
+            if not utils.is_whitespace(database_tags):
+                self.put_tags_wrapper(database_tags)
 
-        # Updater
+        # Updater \
         self.tasks.append(Thread(target=self.update_status))
         self.tasks[-1].daemon = True
         self.tasks[-1].start()
 
     def close(self):
+        '''Closes the window. Checks before if any tasks are alive.'''
         for task in self.tasks:
             if task.is_alive() and not task.isDaemon():
                 error_msg = 'Cannot close, task in progress.'
@@ -88,7 +168,7 @@ class Application():
                     'Error',
                     message=error_msg)
                 return False
-        self.root.destroy()
+        self.destroy()
         return True
 
     def wrapper(self, func, *args):
@@ -104,15 +184,28 @@ class Application():
     def _connect(self):
         if self.email_app == None:
             self.put_msg('Connecting to server...')
-            self.email_app = EmailConnection()
+            if self.database.p_id is None:
+                tk.messagebox.showwarning('Warning', 'Please select a profile'
+                                                     ' before connecting to the'
+                                                     ' server.')
+                return False
+            self.email_app = EmailConnection(self.database.load_profile_info())
             if self.email_app.conn is None:
                 self.put_msg('Not Connected: Connection error/No internet!')
                 tk.messagebox.showerror('Error', 'No internet/Connection error.'
                                                  ' The app was unable to connect'
                                                  ' to the IMAP server.')
+                return False
+            if isinstance(self.email_app.conn, LoginError):
+                self.put_msg('Login error. Check your profile\'s login info.')
+                tk.messagebox.showerror('Error', 'Login error. Check your'
+                                                 ' profile\'s login'
+                                                 ' information.')
+                return False
             self.put_msg('Connected!')
+            return True
         else:
-            self.log.put('Already connected!')
+            self.put_msg('Already connected!')
 
     def _get_mail(self, threads=None):
         if self.email_app != None:
@@ -130,7 +223,8 @@ class Application():
                 else:
                     l_threads = threads
                 self.email_get = EmailGetter(self.email_app.conn, threads,
-                                     self.put_msg, self.add_bar)
+                                             self.database.load_profile_info(),
+                                             self.put_msg, self.add_bar)
                 self.email_get.get_emails_online(threads, self.database.get_datestr())
                 return True
             else:
@@ -153,11 +247,14 @@ class Application():
         '''Convienent pre-set method for the Get_Mail button
         Uses other defined methods during operation.
         '''
-        self._connect()
+        connect_success = self._connect()
+        if not connect_success:
+            tk.messagebox.showerror('Error', 'Connection to server failed...')
+            return False
         self._get_mail(threads=10)
         self._save_mail(self.email_get.emails)
-        self.database.save_last_date(datetime.now())
-        self.pane.set_status(
+        self.database.save_date_now()
+        self.view_sv.set(
             f'PythonEmail Client version {VERSION}.'
             '\nEmails loaded and saved.'
             '\nUse the search function to group and view emails')
@@ -170,17 +267,17 @@ class Application():
         search_val -- The search values to search for, in a string:
                       'value1,value2' format
         '''
-        self.pane.disable_search()
-        self.root.update_idletasks()
+        self.disable_search()
+        self.update_idletasks()
 
-        subject, to_ln, from_ln, all_match = self.pane.get_checkboxes()
+        subject, to_ln, from_ln, all_match = self.get_checkboxes()
         search_terms = search_val.replace(' ', '').lower().split(',')
         if len(search_terms) == 0 or search_terms[0] == '':
             tk.messagebox.showerror('Error:', 'No search terms provided.')
-            self.pane.enable_search()
+            self.enable_search()
             return False
         
-        self.pane.set_search_terms(search_terms)
+        self.set_search_terms(search_terms)
         self._load_mail()
         if self.emails == None:
             error_msg = (
@@ -191,7 +288,7 @@ class Application():
                 message=error_msg
             )
             self.put_msg(error_msg)
-            self.pane.enable_search()
+            self.enable_search()
             return False
 
         if not all_match and len(search_terms) > 1:
@@ -203,7 +300,7 @@ class Application():
                                                       ' with every searched tag')):
                 self.put_msg('Cancelled.')
                 tk.messagebox.showinfo('Info:', 'Cancelled search.')
-                self.pane.enable_search()
+                self.enable_search()
                 return False
 
         process_message_searches = partial(
@@ -234,8 +331,8 @@ class Application():
         self.database.tag_emails(search_list, tags)
         self.put_msg('Finished tagging emails.')
         self.display_mail(tags)
-        self.pane.enable_search()
-        self.pane.set_search_terms('')
+        self.enable_search()
+        self.set_search_terms('')
 
     def display_mail(self, tags=None):
         '''Displays mail onto scrolling_frame and updates grouped tags.
@@ -245,7 +342,7 @@ class Application():
                 None, which gets all emails.
         '''
         self.scrolling_frame.reset_frame()
-        self.root.update_idletasks()
+        self.update_idletasks()
         if tags is not None:
             emails = self.database.get_tagged_emails(tags)
         else:
@@ -281,7 +378,7 @@ class Application():
         Keyword arguments:
         tags -- a list of tags that can be in any order in lower case.
         '''
-        l_tags = [ x for x in tags.split(',') if not x.isspace() and x != '' ]
+        l_tags = utils.make_tag_list(tags)
         if len(l_tags) == 0:
             tk.messagebox.showwarning('Warning',
                                       'Operation aborted, no emails to tag.')
@@ -290,15 +387,14 @@ class Application():
         bar_amt = 100 / len(l_tags)
         for tag in l_tags:
             if tag not in self.tags:
-                self.pane.add_button(tag, tag)
-                self.tags.append(tag)
+                self.prev_searches.add_button(tag, self._show_tags, tag)
             self.add_bar(bar_amt)
 
         self.database.store_tags(tags)
 
     def _show_tags(self, tags):
         self.scrolling_frame.reset_frame()
-        self.root.update_idletasks()
+        self.update_idletasks()
         emails = self.database.get_tagged_emails(tags)
         if len(emails) == 0:
             return False
@@ -350,7 +446,7 @@ class Application():
 
     def update_status(self):
         while True:
-            '''Refreshes self.root with status of various infos'''
+            '''Refreshes self with status of various infos'''
             task_alive = False
             for task in self.tasks: # TODO: make task a tuple of (task_name, actual thread tasks)
                 if task.is_alive() and not task.isDaemon():
@@ -404,12 +500,35 @@ class Application():
                 self.w_progress_br = None
 
             active_threads = active_count()
-            if self.pane.get_thread_cnt() != active_threads:
-                self.pane.set_thread_cnt(active_threads)
+            if self.get_thread_cnt() != active_threads:
+                self.view_thnum.set(str(active_threads))
 
-            self.root.update_idletasks()
+            self.update_idletasks()
             time.sleep(0.02)
+
+    # PanedWindow
+    def set_search_terms(self, searches):
+        string = ''
+        for search in searches:
+            string = "".join((string, search, '\n'))
+        self.search_terms.set(string)
+
+    def get_checkboxes(self):
+        return (self.search_sub.get(), self.search_to.get(),
+                self.search_from.get(), self.search_all.get())
+
+    def get_thread_cnt(self):
+        return int(self.view_thnum.get())
+
+    def clear_entry(self):
+        self.search_en.delete(0, tk.END)
+
+    def enable_search(self):
+        self.search_bt.configure(state=tk.NORMAL)
+
+    def disable_search(self):
+        self.search_bt.configure(state=tk.DISABLED)
 
 if __name__ == '__main__':
     app=Application()
-    app.root.mainloop()
+    app.mainloop()

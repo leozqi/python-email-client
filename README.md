@@ -23,7 +23,9 @@ The storage database (`manager.db`) is intended to replace the `data.json` file 
 * Email under the `email` field.
 * Password, under the `password` field.
 * Imap Server address, under the `imap` field
-* port, under the `port` field.
+* Port, under the `port` field.
+* Last date that profile's mailbox was accessed, under the `date` field.
+* All tags searched before in the profile, under the `tags` field.
 
 This info should be created for each new profile created by the tkinter program.
 
@@ -43,13 +45,15 @@ Emails should be under "groups" (referred to tags in the code) that mimic folder
 |Have dynamic loading: based on which emails the user requests, load ONLY THOSE from saved files|July 2020| - [ ]|
 |Order sorted emails either descending or ascending from the sqlite3 database.|July 2020| - [ ]|
 |Toggle checkbutton for whether or not all search terms should match for an email|July 2020| - [x]|
-|~~Store datetime.datetime last date stored value AND tag strings together in data.json|July 2020~~| - [x]|
-|~~Create user profile selection system and store the gathered usernames/passwords/email servers through keyring and the data.json file~~|Aug 8 2020| - [ ]|
+|~~Store datetime.datetime last date stored value AND tag strings together in data.json|July 2020~~|Finished. Discontinued|
+|~~Create user profile selection system and store the gathered usernames/passwords/email servers through keyring and the data.json file~~|Aug 8 2020|Discontinued|
 |Implement GMAIL compatibility with python-oauth2|Aug 8 2020| - [ ]|
 |Return a tuple of (id, email) messages by the database instead of just a email|Aug 8 2020| - [x]|
-|Allow viewing an email's to email address, from email address, subject line and date sent|Aug 9 2020| - [ ]|
+|Allow viewing an email's to email address, from email address, subject line and date sent|Aug 9 2020| - [x]|
 |Implement Displaying Email attachments|Aug 11 2020| - [x]|
-|Implement Storage Database|Aug 14 2020| - [ ]|
+|Implement Storage Database|Aug 14 2020| - [x]|
+|Rewrite gui_elements and `__main__.py` to remove complexity|Aug 15 2020| - [ ]|
+|Use a profile system to replace the placeholder .env file system to manage email login information|Aug 16 2020| - [x]|
 
 **Bugs:**
 |Issue|Date|Fixed?|
@@ -57,4 +61,4 @@ Emails should be under "groups" (referred to tags in the code) that mimic folder
 |Search values do not show in OverviewPane object|Aug 8 2020| - [x]|
 |Certain characters cannot be displayed by TKinter|Aug 8 2020| - [x]|
 |Displaying emails from tags lags the application|Aug 9 2020| - [x]|
-|Scrollbar is sticky near the top of a window due to the new Scrollbar random scrolling fix|Aug 14 2020| - [ ]|
+|Scrollbar is sticky near the top of a window due to the new Scrollbar random scrolling fix|Aug 14 2020| - [x]|

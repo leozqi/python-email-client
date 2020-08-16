@@ -27,8 +27,10 @@ CREATE TABLE profiles (
     email TEXT NOT NULL,
     password TEXT NOT NULL,
     imap TEXT NOT NULL,
-    port INTEGER NOT NULL DEFAULT 993
+    port INTEGER NOT NULL,
+    date TIMESTAMP,
+    tags TEXT
 );
 '''
 
-VERSION='0.0.7'
+VERSION='0.0.8'

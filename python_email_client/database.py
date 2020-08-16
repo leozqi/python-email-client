@@ -3,62 +3,170 @@ import time
 import sys
 import os
 import pickle
-import utils
 import sqlite3
 import shutil
 import stat
 from datetime import datetime
 import json
 import tkinter as tk
+from tkinter import ttk
 import tkinter.messagebox
 
 # Own functions
-import config
+import infos
+import utils
+import gui_elements
 
 class EmailDatabase():
-    def __init__(self, print_func=None, bar_func=None):
-        '''
-        Initializes an email database.
+    def __init__(self, wait_func, print_func=print, bar_func=print):
+        '''Initializes an email database.
         Keyword arguments:
             print_func -- a method outputting information to a window
             bar_func -- a method that adds an amount to a ttk.progressBar
+        Path tree:
+        /home
+        -- /Python Email
+        ---- /manager.db
+        ---- /temp (temporary)
+        ------ /data.html (stores webpage display)
+        ---- /profiles
+        ------ /[profile_ids as ints]
+        -------- /saved (emails go here)
+        -------- /attach (attachments go here)
         '''
+        # Functions
+        self.print = print_func
+        self.bar = bar_func
+        self.wait_func = wait_func
+
+        # Configuration
+        self.p_id = None    # Profile ID
+
         # Different paths
-        self.system_path = utils.get_store_path()
-        if not os.path.exists(self.system_path):
-            os.makedirs(self.system_path)
-
-        self.resource_path = os.path.join(self.system_path, 'resources/')
-        if not os.path.exists(self.resource_path):
-            os.makedirs(self.resource_path)
-
-        self.save_path = os.path.join(self.system_path, 'resources/saved/')
-        if not os.path.exists(self.save_path):
-            os.makedirs(self.save_path)
-
-        self.attach_path = os.path.join(self.system_path, 'resources/attach/')
-        if not os.path.exists(self.attach_path):
-            os.makedirs(self.attach_path)
+        self.resource_path = utils.get_store_path()
+        if not os.path.exists(self.resource_path): os.makedirs(self.resource_path)
 
         self.database_path = os.path.join(self.resource_path, 'manager.db')
-        self.json_path = os.path.join(self.resource_path, 'data.json')
-
-        # Functions and DB objects
+        self.temp_path = os.path.join(self.resource_path, 'temp/data.html')
+        self.profile_path = os.path.join(self.resource_path, 'profiles/')
         self.manager = self._load_db() # sqlite3 db connection
 
-        # If any functions not provided, default all to standard print func.
-        if print_func == bar_func == None:
-            self.print = print
-            self.bar = print
-        else:
-            self.print = print_func
-            self.bar = bar_func
+    def __del__(self):
+        try:
+            if self.manager is not None:
+                self.manager.close()
+        except AttributeError:
+            pass
 
+        if os.path.exists(self.temp_path):
+            os.remove(self.temp_path)
+
+    def get_profile_info(self, title, profiles, default=None):
+        '''Keyword arguments:
+        title -- The title of the window
+        profiles -- A list of already taken profile names that should
+                    not conflict
+        default -- a tuple of default values for each profile component:
+                   * Profile Name
+                   * Email address
+                   * Password
+                   * IMAP server
+        '''
+        popup_window = gui_elements.PopupProfileDialog(title, profiles, default)
+        self.wait_func(popup_window.popup)
+        return popup_window.info
+
+    def configure_profile(self):
+        profiles = self.manager.execute(
+            'SELECT (name) FROM profiles'
+        ).fetchall()
+
+        if len(profiles) == 0:
+            p_info = self.get_profile_info('Create a new profile', profiles)
+            while len(p_info) == 0:
+                p_info = self.get_profile_info('Please fill out this form', profiles)
+            self.manager.execute(
+                'INSERT INTO profiles (name, email, password, imap, port)'
+                ' VALUES (?, ?, ?, ?, ?)',
+                (p_info[0], p_info[1], p_info[2], p_info[3], int(p_info[4])))
+            self.manager.commit()
+            self.p_id = self.manager.execute(
+                'SELECT last_insert_rowid() FROM profiles'
+            ).fetchone()[0]
+        else:
+            p_ids = self.manager.execute(
+                'SELECT id, name FROM profiles'
+            ).fetchall()
+            choices = [i['name'] for i in p_ids]
+            popup_select = gui_elements.PopupSelectDialog('Pick a profile', choices)
+            self.wait_func(popup_select.popup)
+            name = popup_select.result.get()
+
+            for i in p_ids:
+                if i['name'] == name:
+                    self.p_id = i['id']
+                    break
+
+        if self.p_id is None:
+            tk.messagebox.showwarning('Warning', 'No option was selected')
+            self.configure_profile()
+            return False
+
+        self.update_paths()
         self.last_date = self._load_last_date()
 
+    def edit_profile(self):
+        p_ids = self.manager.execute(
+            'SELECT id, name, email, password, imap FROM profiles'
+        ).fetchall()
+        choices = [i['name'] for i in p_ids]
+        if len(choices) == 0:
+            tk.messagebox.showwarning('Warning', 'No profiles to edit')
+            return False
+
+        popup_select = gui_elements.PopupSelectDialog('Pick a profile', choices)
+        self.wait_func(popup_select.popup)
+        name = popup_select.result.get()
+
+        change_id = None
+        for i in p_ids:
+            if i['name'] == name:
+                change_id = i['id']
+                email = i['email']
+                name = i['name']
+                password = i['password']
+                imap = i['imap']
+                break
+        if change_id is None:
+            tk.messagebox.showwarning('Warning', 'No option was selected')
+            return False
+
+        profile_list = choices.copy()
+        try:
+            profile_list.remove(name)
+        except:
+            pass
+        p_info = self.get_profile_info('Edit profile', profile_list, (email, name,
+                                                                  password, imap))
+        while len(p_info) == 0:
+            p_info = self.get_profile_info('Please fill out this form:'
+                                           ' Edit profile', profiles)
+        self.manager.execute(
+            'UPDATE profiles SET name = ?, email = ?, password = ?, imap = ?, port = ?'
+            ' WHERE id = ?',
+            (p_info[0], p_info[1], p_info[2], p_info[3], int(p_info[4]), change_id))
+        self.manager.commit()
+        self.p_id = change_id
+        self.update_paths()
+
+    def update_paths(self):
+        self.save_path = os.path.join(self.profile_path, f'{self.p_id}/saved/')
+        if not os.path.exists(self.save_path): os.makedirs(self.save_path)
+        self.attach_path = os.path.join(self.profile_path, f'{self.p_id}/attach/')
+        if not os.path.exists(self.attach_path): os.makedirs(self.attach_path)
+
     def _load_db(self):
-        '''
-        Returns a stored SQLITE3 database. Creates one if one is not found.
+        '''Returns a stored SQLITE3 database. Creates one if one is not found.
         The path of the database is stored at the self.database_path attribute.
         '''
         if os.path.exists(self.database_path):
@@ -73,8 +181,7 @@ class EmailDatabase():
             with open(self.database_path, 'x') as f:
                 pass
             db = self._load_db()
-            with open('schema.sql', 'r') as f:
-                db.executescript(schema.SCHEMA)
+            db.executescript(infos.SCHEMA)
             db.commit()
             return db
 
@@ -82,69 +189,61 @@ class EmailDatabase():
         '''Resets the database. Deletes all database contents.'''
         self.print('Resetting...')
         self.manager = None
-        os.remove(self.database_path)
-        if os.path.exists(self.json_path):
-            os.remove(self.json_path)
-        shutil.rmtree(self.save_path)
         os.chmod(self.resource_path, stat.S_IWUSR)
+        os.remove(self.database_path)
+        shutil.rmtree(self.save_path)
         os.mkdir(self.save_path)
         os.chmod(self.save_path, stat.S_IWUSR)
         shutil.rmtree(self.attach_path)
         os.mkdir(self.attach_path)
         os.chmod(self.attach_path, stat.S_IWUSR)
 
-        if os.path.exists(os.path.join(self.resource_path, 'temp/data.html')):
-            os.remove(os.path.join(self.resource_path, 'temp/data.html'))
+        if os.path.exists(self.temp_path): os.remove(self.temp_path)
         self.print('Resetted database.')
 
-    def save_last_date(self, date):
+    def load_profile_info(self):
+        '''Returns all profile data stored for the currently loaded
+        profile (whose id is stored at self.p_id)
+        Returns -> data dictionary containing profile info.
         '''
-        Save a datetime.datetime object as a string POSIX timestamp.
-        Keyword arguments:
-        date - a datetime.datetime object
-        '''
-        stored = datetime.timestamp(date)
-        if not os.path.exists(self.json_path):
-            data = {
-                'date': stored
-            }
-            with open(self.json_path, 'w') as f:
-                json.dump(data, f)
-            return True
+        assert self.p_id is not None
+        data = self.manager.execute(
+            'SELECT * FROM profiles WHERE id = ?',
+            (self.p_id,)
+        ).fetchone()
+        return data
 
-        data = self.load_json()
-        if data is None:
-            data = {}
-            data['date'] = stored
-
-        with open(self.json_path, 'w') as f:
-            json.dump(data, f)
+    def save_date_now(self):
+        '''Save the timestamp date of the current time'''
+        assert self.p_id is not None
+        self.manager.execute(
+            'UPDATE profiles SET date = CURRENT_TIMESTAMP WHERE id = ?',
+            (self.p_id,))
+        self.manager.commit()
+        return True
 
     def _load_last_date(self):
+        '''Returns the last date that the email server was accessed.
+        Returns -> datetime.datetime object or Nonetype if not found.
         '''
-        Returns the last date that the email server was accessed.
-        Returns: datetime.datetime object or Nonetype if not found.
-        '''
-        try:
-            with open(self.json_path, 'r') as f:
-                data = self.load_json()
-                if data is None:
-                    return None
-                elif 'date' not in data:
-                    return None
-                else:
-                    return datetime.fromtimestamp(data['date'])
-        except FileNotFoundError:
+        assert self.p_id is not None
+        data = self.manager.execute(
+            'SELECT id, date FROM profiles WHERE id = ?',
+            (self.p_id,)
+        ).fetchone()
+        if data['date'] is None:
             return None
+        else:
+            return data['date']
 
-    def get_datestr(self): 
+    def get_datestr(self):
         if self.last_date == None:
             return None
         else:
             return self.last_date.strftime('%d-%b-%Y')
 
     def save_emails(self, email_list):
-        '''
+        '''Saves emails into the database.
         Keyword arguments:
         email_list -- The EmailGetter() class's self.emails method, 
                       a list of email tuples of format (message, num)
@@ -276,36 +375,19 @@ class EmailDatabase():
         self.print('No emails present.')
 
     def store_tags(self, tags):
-        data = self.load_json()
-        if data is None:
-            data = {}
-            data['tags'] = tags
-        elif 'tags' not in data:
-            data['tags'] = tags
+        '''Stores tags in the 'profiles' table of the database'''
+        data = self.manager.execute(
+            'SELECT * FROM profiles WHERE id = ?',
+            (self.p_id,)
+        ).fetchone()
+        if data['tags'] is None:
+            update_tags = tags
         else:
-            old_tags = [ x for x in data['tags'].split(',') if not x.isspace() and x != '' ]
-            new_tags = [ x for x in tags.split(',') if not x.isspace() and x != '' ]
-            for tag in new_tags:
-                if tag not in old_tags:
-                    old_tags.append(tag)
-            data['tags'] = ','.join(old_tags)
-
-        with open(self.json_path, 'w') as f:
-            json.dump(data, f)
-
-    def store_json(self, tags):
-        data = {
-            'tags': tags
-        }
-        with open(self.json_path, 'w') as f:
-            json.dump(data, f)
-
-    def load_json(self):
-        if os.path.exists(self.json_path):
-            with open(self.json_path, 'r') as f:
-                data = json.load(f)
-            return data
-        return None
+            update_tags = utils.merge_tags(data['tags'], tags)
+        self.manager.execute(
+            'UPDATE profiles SET tags = ? WHERE id = ?',
+            (update_tags, self.p_id))
+        self.manager.commit()
 
     def tag_emails(self, key_list, tags):
         '''Tags emails in database
@@ -331,12 +413,7 @@ class EmailDatabase():
             ).fetchone()
 
             if tag_info['tags'] is not None:
-                add_tags = [ x for x in tag_info['tags'].split(',') if not x.isspace() and x != '' ]
-                search_tags = [ x for x in tags.split(',') if not x.isspace() and x != '']
-                for tag in search_tags:
-                    if tag not in add_tags:
-                        add_tags.append(tag)
-                str_tags = ','.join(add_tags)
+                str_tags = utils.merge_tags(tag_info['tags'], tags)
             else:
                 str_tags = tags
 

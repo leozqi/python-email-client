@@ -1,5 +1,4 @@
 *.env
-*.txt
 *.pyc
 *.spec
 python_email_client/__pycache__/
