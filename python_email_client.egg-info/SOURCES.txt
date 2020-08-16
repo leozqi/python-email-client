@@ -1,0 +1,14 @@
+README.md
+setup.py
+python_email_client/__init__.py
+python_email_client/__main__.py
+python_email_client/config.py
+python_email_client/database.py
+python_email_client/email_conn.py
+python_email_client/gui_elements.py
+python_email_client/parse_mail.py
+python_email_client/utils.py
+python_email_client.egg-info/PKG-INFO
+python_email_client.egg-info/SOURCES.txt
+python_email_client.egg-info/dependency_links.txt
+python_email_client.egg-info/top_level.txt
