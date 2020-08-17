@@ -1,7 +1,7 @@
 *.env
 *.pyc
 *.spec
-python_email_client/__pycache__/
+python_email_client/__pycache__/**
 python_email_client/resources/**
-python_email_client/build/
+python_email_client/build/**
 .vscode/
