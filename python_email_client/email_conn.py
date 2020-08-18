@@ -1,10 +1,11 @@
 from email import message_from_bytes
 from imaplib import IMAP4_SSL
-from queue import Queue
-from threading import Thread
+from queue import Queue, Empty
+from threading import Thread, Lock
 import utils
 import tkinter as tk
 import socket
+import gc
 
 class LoginError():
     def __init__(self, error_msg=''):
@@ -49,19 +50,7 @@ class EmailConnection():
                 self.conn.close()
                 self.conn.logout()
             except:
-                pass
-
-    def search_for_mailbox(self, sort_folder):
-        '''Searches for the presence of a mailbox/folder in the account.
-        CURRENTLY UNUSED
-        '''
-        status, response = self.conn.list()
-        if status == 'OK':
-            for item in response:
-                stritem = item.decode('utf-8')
-                if sort_folder in stritem:
-                    return True
-        return False
+                self.conn = None
 ## End class EmailConnection ##
 
 class EmailGetter:
@@ -77,6 +66,7 @@ class EmailGetter:
         self.conn = conn
         self.message_queue = Queue()
         self.finished_queue = Queue()
+        self.get_lock = Lock()
         self.workers = []
         self.print = print_func
         self.bar = bar_func
@@ -105,38 +95,33 @@ class EmailGetter:
             search_str = 'ALL'
         else:
             search_str = f'(SINCE "{last_date}")'
-        typ, messages = self.conn.search(
-            None, 
-            search_str
-        )
-        self.print('Searching messages... ')
+        typ, messages = self.conn.search(None, search_str)
+        self.print('Searching messages...')
         if typ == 'OK' and messages[0]:
-            for x in range(threads):
-                self.workers.append(Thread(target=self.fetch, args=(msg_bar,)))
-                self.workers[-1].setDaemon(True)
-                self.workers[-1].start()
-
+            self.active = True
             self.print('Got list of messages!')
-            self.print('Downloading messages -> ')
+            self.print('Downloading messages...')
             for index, num in enumerate(messages[0].split()):
                 self.message_queue.put(num)
+
+            for x in range(threads):
+                self.workers.append(Thread(target=self.fetch, args=(msg_bar,)))
+                self.workers[-1].start()
 
             self.message_queue.join()
             self.print('Finished!')
             self.print('Shutting down threads...')
-            for worker in self.workers:
-                self.message_queue.put(None)
-            
-            self.message_queue.join()
+            self.active = False
             self.print('Threads finished.')
             self.print('Sorting messages... ')
             msg_list = list(self.finished_queue.queue)
             self.print('Finished sorting messages!')
-            self.active = False
+
             self.emails = msg_list
+            print(self.emails)
             return True
         else:
-            self.print('No message response')
+            self.print('No message response...')
             self.emails = []
             return False
 
@@ -154,17 +139,21 @@ class EmailGetter:
             return False
         
         while self.active:
-            msg_num = self.message_queue.get()
-            if msg_num == None:
+            if not self.message_queue.empty():
+                self.get_lock.acquire()
+                try:
+                    msg_num = self.message_queue.get(timeout=2)
+                except Empty:
+                    return True
+                self.get_lock.release()
+                display_msg_num = msg_num.decode('utf-8')
+                status, data = conn.fetch(msg_num, '(RFC822)')
+                message = message_from_bytes(data[0][1])
+                self.finished_queue.put((message, msg_num))
                 self.message_queue.task_done()
-                return True
-            status, data = conn.fetch(msg_num, '(RFC822)')
-            message = message_from_bytes(data[0][1])
-            self.finished_queue.put((message, msg_num))
-            self.message_queue.task_done()
-            self.print(f'Got message {msg_num}')
-            if self.bar != None:
-                self.bar(inc_amt)
+                self.print(f'Got message {display_msg_num}')
+                if self.bar != None:
+                    self.bar(inc_amt)
         return True
 
     def get_subjects(self, num_list):
@@ -173,4 +162,15 @@ class EmailGetter:
             if item[1] in num_list:
                 subject_list.append(item[0].get('Subject'))
         return subject_list
+
+    def reset(self):
+        self.active = False
+        self.emails = None
+        with self.message_queue.mutex:
+            self.message_queue.queue.clear()
+        
+        with self.finished_queue.mutex:
+            self.finished_queue.queue.clear()
+
+        self.workers = []
 ## End EmailGetter class ##

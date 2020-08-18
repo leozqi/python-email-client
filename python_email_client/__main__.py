@@ -18,7 +18,6 @@ from email_conn import *
 from gui_elements import *
 
 import infos
-VERSION = infos.VERSION
 
 class Application(tk.Tk):
     def __init__(self):
@@ -43,7 +42,7 @@ class Application(tk.Tk):
 
         # Arrange the basics of window
         self.geometry('1000x750')
-        self.title(''.join( ('PythonMail Client v.', VERSION) ))
+        self.title(''.join( ('PythonMail Client v.', infos.VERSION) ))
         self.iconbitmap('favicon.ico')
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.style = ttk.Style()
@@ -60,28 +59,31 @@ class Application(tk.Tk):
         self.view_lf = ttk.Labelframe(self.left_pw, text='Overview')
         self.view_sv = tk.StringVar()
         self.view_sv.set(
-            f'PythonEmail Client version {VERSION}.'
+            f'PythonEmail Client version {infos.VERSION}.'
             '\nPress the "Get Emails" button to get emails.')
         self.view_lb = ttk.Label(self.view_lf,
-                                      textvariable=self.view_sv)
+                                 textvariable=self.view_sv)
         self.view_lb.pack(fill=tk.X)
         self.view_thnum = tk.StringVar()
         self.view_thnum.set('1')
         self.view_thlb = ttk.Label(self.view_lf,
-                                        textvariable=self.view_thnum)
+                                   textvariable=self.view_thnum)
         self.view_thlb.pack(fill=tk.X)
         self.view_rfbt = ttk.Button(self.view_lf,
                                     text='Sync with server',
                                     command=lambda: self.wrapper(
                                         self._conv_mail))
         self.view_rfbt.pack(fill=tk.X)
-        self.view_shbt = ttk.Button(self.view_lf, text='Show All Emails!',
+        self.view_shbt = ttk.Button(self.view_lf, text='Show All Emails',
                                     command=lambda: self.wrapper(
                                         self.display_mail))
         self.view_shbt.pack(fill=tk.X)
         self.view_upbt = ttk.Button(self.view_lf, text='Edit profile',
                                     command=self.database.edit_profile)
         self.view_upbt.pack(fill=tk.X)
+        self.view_chbt = ttk.Button(self.view_lf, text='Change profile',
+                                    command=self.database.configure_profile)
+        self.view_chbt.pack(fill=tk.X)
 
         # Search -\
         self.search_lf = ttk.Labelframe(self.left_pw, text='Search')
@@ -144,8 +146,8 @@ class Application(tk.Tk):
         self.scrolling_frame = ScrollingFrameAndView(self)
         self.scrolling_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.database.configure_profile()
         # Tags \
+        self.database.configure_profile()
         self.tags = []
         profile_info = self.database.load_profile_info()
         if profile_info['tags'] is not None:
@@ -164,9 +166,7 @@ class Application(tk.Tk):
             if task.is_alive() and not task.isDaemon():
                 error_msg = 'Cannot close, task in progress.'
                 self.put_msg(error_msg)
-                tk.messagebox.showwarning(
-                    'Error',
-                    message=error_msg)
+                tk.messagebox.showwarning('Error', message=error_msg)
                 return False
         self.destroy()
         return True
@@ -186,8 +186,8 @@ class Application(tk.Tk):
             self.put_msg('Connecting to server...')
             if self.database.p_id is None:
                 tk.messagebox.showwarning('Warning', 'Please select a profile'
-                                                     ' before connecting to the'
-                                                     ' server.')
+                                                     ' before connecting to an'
+                                                     ' email server.')
                 return False
             self.email_app = EmailConnection(self.database.load_profile_info())
             if self.email_app.conn is None:
@@ -202,36 +202,37 @@ class Application(tk.Tk):
                                                  ' profile\'s login'
                                                  ' information.')
                 return False
+
             self.put_msg('Connected!')
             return True
         else:
             self.put_msg('Already connected!')
 
     def _get_mail(self, threads=None):
-        if self.email_app != None:
-            if self.email_get == None:
-                self.put_msg('Getting messages')
-                if threads == None:
-                    l_threads = tk.simpledialog.askinteger(
-                        'Get messages',
-                        'Enter amount of threads for search (Min 1, Max 10)',
-                        minvalue=1, maxvalue=10
-                    )
-                    if l_threads == None:
-                        self.put_msg('Cancelled.')
-                        return False
-                else:
-                    l_threads = threads
-                self.email_get = EmailGetter(self.email_app.conn, threads,
-                                             self.database.load_profile_info(),
-                                             self.put_msg, self.add_bar)
-                self.email_get.get_emails_online(threads, self.database.get_datestr())
-                return True
+        if self.email_app is not None:
+            if self.email_get is not None:
+                self.email_get.reset()
+
+            self.put_msg('Getting messages')
+            if threads is None:
+                l_threads = tk.simpledialog.askinteger('Get messages',
+                                                        'Enter amount of'
+                                                        ' threads for search'
+                                                        ' (Min 1, Max 10)',
+                                                        minvalue=1, maxvalue=10)
+                if l_threads is None:
+                    self.put_msg('Cancelled.')
+                    return False
             else:
-                self.put_msg('Emails already received.')
+                l_threads = threads
+            self.email_get = EmailGetter(self.email_app.conn, threads,
+                                            self.database.load_profile_info(),
+                                            self.put_msg, self.add_bar)
+            self.email_get.get_emails_online(threads, self.database.get_datestr())
+            return True
         else:
             self.put_msg('You must connect to the server first. Connecting...')
-            self.connect()
+            self._connect()
             self._get_mail()
     
     def _load_mail(self):
@@ -239,11 +240,12 @@ class Application(tk.Tk):
 
     def _save_mail(self, emails=None):
         if emails is not None:
-            self.database.save_emails(emails)
-        else:
-            self.put_msg('No emails to save...')
+            return self.database.save_emails(emails)
+        elif self.email_get is not None:
+            if self.email_get.emails is not None:
+                return self.database.save_emails(self.email_get.emails)
 
-    def _conv_mail(self): # convienence class for user
+    def _conv_mail(self):
         '''Convienent pre-set method for the Get_Mail button
         Uses other defined methods during operation.
         '''
@@ -252,13 +254,16 @@ class Application(tk.Tk):
             tk.messagebox.showerror('Error', 'Connection to server failed...')
             return False
         self._get_mail(threads=10)
-        self._save_mail(self.email_get.emails)
+        save_success = self._save_mail(self.email_get.emails)
+        if not save_success:
+            tk.messagebox.showinfo('Info', 'No new emails to save')
         self.database.save_date_now()
         self.view_sv.set(
-            f'PythonEmail Client version {VERSION}.'
+            f'PythonEmail Client version {infos.VERSION}.'
             '\nEmails loaded and saved.'
             '\nUse the search function to group and view emails')
         tk.messagebox.showinfo('Info:', 'Finished getting all emails.')
+        gc.collect()
 
     def _search(self, search_val):
         '''
@@ -347,13 +352,10 @@ class Application(tk.Tk):
             emails = self.database.get_tagged_emails(tags)
         else:
             emails = self.database.get_all_emails()
-        
         self.put_msg('Finished getting tagged emails.')
-
         if not emails or len(emails) == 0:
             tk.messagebox.showinfo('Info', 'No searched emails found')
             return False
-
         self._display_mail(emails)
 
         if tags is not None:

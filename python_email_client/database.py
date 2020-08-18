@@ -77,43 +77,53 @@ class EmailDatabase():
         return popup_window.info
 
     def configure_profile(self):
-        profiles = self.manager.execute(
-            'SELECT (name) FROM profiles'
+        p_ids = self.manager.execute(
+            'SELECT id, name FROM profiles'
         ).fetchall()
-
-        if len(profiles) == 0:
-            p_info = self.get_profile_info('Create a new profile', profiles)
-            while len(p_info) == 0:
-                p_info = self.get_profile_info('Please fill out this form', profiles)
-            self.manager.execute(
-                'INSERT INTO profiles (name, email, password, imap, port)'
-                ' VALUES (?, ?, ?, ?, ?)',
-                (p_info[0], p_info[1], p_info[2], p_info[3], int(p_info[4])))
-            self.manager.commit()
-            self.p_id = self.manager.execute(
-                'SELECT last_insert_rowid() FROM profiles'
-            ).fetchone()[0]
-        else:
-            p_ids = self.manager.execute(
-                'SELECT id, name FROM profiles'
-            ).fetchall()
-            choices = [i['name'] for i in p_ids]
-            popup_select = gui_elements.PopupSelectDialog('Pick a profile', choices)
-            self.wait_func(popup_select.popup)
-            name = popup_select.result.get()
-
+        choices = [i['name'] for i in p_ids]
+        choices.append('Create new...')
+        popup_select = gui_elements.PopupSelectDialog('Pick a profile',
+                                                      'Select profile to use this session',
+                                                       choices)
+        self.wait_func(popup_select.popup)
+        name = popup_select.result.get()
+        
+        if name != 'Create new...':
             for i in p_ids:
                 if i['name'] == name:
                     self.p_id = i['id']
                     break
+        else:
+            name = self.create_profile()
 
         if self.p_id is None:
             tk.messagebox.showwarning('Warning', 'No option was selected')
             self.configure_profile()
             return False
-
         self.update_paths()
-        self.last_date = self._load_last_date()
+        tk.messagebox.showinfo('Info',
+                               f'You have selected profile "{name}"" as your'
+                               f' profile.\nId number: {self.p_id}')
+
+    def create_profile(self):
+        profiles = self.manager.execute(
+            'SELECT (name) FROM profiles'
+        ).fetchall()
+        new_profiles = profiles.copy()
+        new_profiles.append('Create new...')
+        p_info = self.get_profile_info('Create a new profile', profiles)
+        while len(p_info) == 0:
+            p_info = self.get_profile_info('Please fill out this form', profiles)
+        self.manager.execute(
+            'INSERT INTO profiles (name, email, password, imap, port)'
+            ' VALUES (?, ?, ?, ?, ?)',
+            (p_info[0], p_info[1], p_info[2], p_info[3], int(p_info[4])))
+        self.manager.commit()
+        self.p_id = self.manager.execute(
+            'SELECT last_insert_rowid() FROM profiles'
+        ).fetchone()[0]
+        self.update_paths()
+        return p_info[0]
 
     def edit_profile(self):
         p_ids = self.manager.execute(
@@ -123,11 +133,11 @@ class EmailDatabase():
         if len(choices) == 0:
             tk.messagebox.showwarning('Warning', 'No profiles to edit')
             return False
-
-        popup_select = gui_elements.PopupSelectDialog('Pick a profile', choices)
+        popup_select = gui_elements.PopupSelectDialog('Pick a profile',
+                                                      'Select profile to edit',
+                                                       choices)
         self.wait_func(popup_select.popup)
         name = popup_select.result.get()
-
         change_id = None
         for i in p_ids:
             if i['name'] == name:
@@ -140,7 +150,6 @@ class EmailDatabase():
         if change_id is None:
             tk.messagebox.showwarning('Warning', 'No option was selected')
             return False
-
         profile_list = choices.copy()
         try:
             profile_list.remove(name)
@@ -164,6 +173,7 @@ class EmailDatabase():
         if not os.path.exists(self.save_path): os.makedirs(self.save_path)
         self.attach_path = os.path.join(self.profile_path, f'{self.p_id}/attach/')
         if not os.path.exists(self.attach_path): os.makedirs(self.attach_path)
+        self.last_date = self._load_last_date()
 
     def _load_db(self):
         '''Returns a stored SQLITE3 database. Creates one if one is not found.
@@ -302,10 +312,9 @@ class EmailDatabase():
                 for part in email[0].walk():
                     if part.get_content_maintype() == 'multipart':
                         continue
-                    if not part.get('Content-Disposition'):
+                    elif not part.get('Content-Disposition'):
                         continue
-
-                    if part.get_filename() is None:
+                    elif part.get_filename() is None:
                         continue
                     elif part.get_filename().isspace() or part.get_filename() == '':
                         continue

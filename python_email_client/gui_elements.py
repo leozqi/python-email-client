@@ -16,14 +16,11 @@ import subprocess
 
 def center(toplevel):
     toplevel.update_idletasks()
-
     screen_width = toplevel.winfo_screenwidth()
     screen_height = toplevel.winfo_screenheight()
-
     size = tuple(int(_) for _ in toplevel.geometry().split('+')[0].split('x'))
     x = screen_width/2 - size[0]/2
     y = screen_height/2 - size[1]/2
-
     toplevel.geometry("+%d+%d" % (x, y))
 
 class ScrollFrame(tk.Frame):
@@ -157,7 +154,7 @@ class PopupDialog(tk.Toplevel):
 class ScrollingFrameAndView(tk.Frame):
     def __init__(self, parent):
         tk.Frame.__init__(self, parent)
-        self.save_path = os.path.join(utils.get_store_path(), 'resources/temp/')
+        self.save_path = os.path.join(utils.get_store_path(), 'temp/')
         if not os.path.exists(self.save_path):
             os.makedirs(self.save_path)
         self.left_fm = ttk.Frame(self, width=320)
@@ -360,8 +357,8 @@ class PopupProfileDialog():
             entry_values.append(entry.get())
 
         if utils.is_whitespace(entry_values[0]) or (entry_values[0] in profiles):
-            tk.messagebox.showerror('Error', 'The profile name must be unique'
-                                             ' and not blank.')
+            tk.messagebox.showerror('Error', 'The profile name must be unique,'
+                                             ' not reserved and not blank.')
             entries[0].delete(0, tk.END)
             self.popup.lift()
             return False
@@ -397,12 +394,12 @@ class PopupProfileDialog():
         return True
 
 class PopupSelectDialog():
-    def __init__(self, title, choices):
+    def __init__(self, title, text, choices):
         self.popup = PopupDialog(title=title, geometry='400x100')
         self.result = tk.StringVar()
         self.result.set(' ')
         self.label = ttk.Label(self.popup,
-                               text='Select profile to use this session')
+                               text=text)
         self.label.pack(fill=tk.X)
         self.combo = ttk.Combobox(self.popup, textvariable=self.result,
                                   values=choices)
