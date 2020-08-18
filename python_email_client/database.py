@@ -98,12 +98,8 @@ class EmailDatabase():
 
         if self.p_id is None:
             tk.messagebox.showwarning('Warning', 'No option was selected')
-            self.configure_profile()
             return False
         self.update_paths()
-        tk.messagebox.showinfo('Info',
-                               f'You have selected profile "{name}"" as your'
-                               f' profile.\nId number: {self.p_id}')
 
     def create_profile(self):
         profiles = self.manager.execute(
@@ -155,8 +151,8 @@ class EmailDatabase():
             profile_list.remove(name)
         except:
             pass
-        p_info = self.get_profile_info('Edit profile', profile_list, (email, name,
-                                                                  password, imap))
+        p_info = self.get_profile_info('Edit profile', profile_list,
+                                       (email, name, password, imap))
         while len(p_info) == 0:
             p_info = self.get_profile_info('Please fill out this form:'
                                            ' Edit profile', profiles)
@@ -195,6 +191,35 @@ class EmailDatabase():
             db.commit()
             return db
 
+    def reset_profile(self):
+        '''Only resets a profile's information'''
+        self.print('Resetting...')
+        email_refs = self.manager.execute(
+            'SELECT (id) FROM emails WHERE owner = ?',
+            (self.p_id,)
+        ).fetchall()
+        for ref in email_refs:
+            self.manager.execute(
+                'DELETE FROM files WHERE email_lk = ?',
+                (ref,))
+            self.manager.commit()
+            self.manager.execute(
+                'DELETE FROM emails WHERE id = ?',
+                (ref,))
+            self.manager.commit()
+
+        self.manager.execute(
+            'DELETE FROM profiles WHERE id = ?',
+            (self.p_id,))
+        self.manager.commit()
+
+        shutil.rmtree(self.save_path)
+        os.mkdir(self.save_path)
+        os.chmod(self.save_path, stat.S_IWUSR)
+        shutil.rmtree(self.attach_path)
+        os.mkdir(self.attach_path)
+        os.chmod(self.attach_path, stat.S_IWUSR)
+
     def reset_db(self):
         '''Resets the database. Deletes all database contents.'''
         self.print('Resetting...')
@@ -216,7 +241,8 @@ class EmailDatabase():
         profile (whose id is stored at self.p_id)
         Returns -> data dictionary containing profile info.
         '''
-        assert self.p_id is not None
+        if self.p_id is None:
+            return None
         data = self.manager.execute(
             'SELECT * FROM profiles WHERE id = ?',
             (self.p_id,)
@@ -247,7 +273,7 @@ class EmailDatabase():
             return data['date']
 
     def get_datestr(self):
-        if self.last_date == None:
+        if self.last_date is None:
             return None
         else:
             return self.last_date.strftime('%d-%b-%Y')
@@ -262,7 +288,7 @@ class EmailDatabase():
         if len(email_list) == 0:
             self.print('No new emails to save.')
             return False
-
+        l_p_id = self.p_id
         email_amt = 100 / len(email_list)
         for email in email_list:
             # Get header values
@@ -285,59 +311,58 @@ class EmailDatabase():
             
             exists = self.manager.execute(
                 'SELECT * FROM emails'
-                ' WHERE subject = ? AND created = ?'
-                ' AND to_address = ? AND from_address = ?',
-                (subject, date, to_line, from_line)
+                ' WHERE subject = ? AND created = ? AND to_address = ?'
+                ' AND from_address = ? AND owner = ?',
+                (subject, date, to_line, from_line, l_p_id)
             ).fetchone()
 
-            if exists is None: # only get new emails
+            if exists is not None: # only get new emails
+                continue
+
+            self.manager.execute(
+                'INSERT INTO emails'
+                ' (subject, created, to_address, from_address, read, owner)'
+                ' VALUES (?, ?, ?, ?, ?, ?)',
+                (subject, date, to_line, from_line, 0, l_p_id))
+            self.manager.commit()
+            mail_id = self.manager.execute(
+                'SELECT last_insert_rowid() FROM emails'
+            ).fetchone()[0]
+            mail_path = os.path.join(
+                self.save_path,
+                "".join( (str(mail_id), '.pkl') ))
+            with open(mail_path, 'wb') as out:
+                pickle.dump(email, out, pickle.HIGHEST_PROTOCOL)
+
+            # Also save potential attachments
+            for part in email[0].walk():
+                if part.get_content_maintype() == 'multipart':
+                    continue
+                elif not part.get('Content-Disposition'):
+                    continue
+                elif part.get_filename() is None:
+                    continue
+                elif utils.is_whitespace(part.get_filename()):
+                    continue
+
+                filename, file_ext = os.path.splitext(part.get_filename())
                 self.manager.execute(
-                    'INSERT INTO emails'
-                    ' (subject, created, to_address, from_address, read)'
-                    ' VALUES (?, ?, ?, ?, ?)',
-                    (subject, date, to_line, from_line, 0),
+                    'INSERT INTO files (filename, extension, email_lk)'
+                    ' VALUES (?, ?, ?)',
+                    (filename, file_ext, mail_id),
                 )
                 self.manager.commit()
-                mail_id = self.manager.execute(
-                    'SELECT last_insert_rowid() FROM emails'
-                ).fetchone()
-                mail_path = os.path.join(
-                    self.save_path,
-                    "".join( (str(mail_id[0]), '.pkl') )
-                )
-                with open(mail_path, 'wb') as out:
-                    pickle.dump(email, out, pickle.HIGHEST_PROTOCOL)
+                
+                file_id = self.manager.execute(
+                    'SELECT last_insert_rowid() FROM files'
+                ).fetchone()[0]
+                file_path = os.path.join(
+                    self.attach_path,
+                    ''.join( (str(file_id), file_ext) ))
+                with open(file_path, 'wb') as out:
+                    out.write(part.get_payload(decode=1))
 
-                # Also save potential attachments
-                for part in email[0].walk():
-                    if part.get_content_maintype() == 'multipart':
-                        continue
-                    elif not part.get('Content-Disposition'):
-                        continue
-                    elif part.get_filename() is None:
-                        continue
-                    elif part.get_filename().isspace() or part.get_filename() == '':
-                        continue
-
-                    filename, file_ext = os.path.splitext(part.get_filename())
-                    self.manager.execute(
-                        'INSERT INTO files (filename, extension, email_lk)'
-                        ' VALUES (?, ?, ?)',
-                        (filename, file_ext, mail_id[0]),
-                    )
-                    self.manager.commit()
-                    
-                    file_id = self.manager.execute(
-                        'SELECT last_insert_rowid() FROM files'
-                    ).fetchone()
-                    file_path = os.path.join(
-                        self.attach_path,
-                        ''.join( (str(file_id[0]), file_ext) )
-                    )
-                    with open(file_path, 'wb') as out:
-                        out.write(part.get_payload(decode=1))
-
-            if self.bar != None:
+            if self.bar is not None:
                 self.bar(email_amt)
 
         self.print('Finished')
@@ -347,7 +372,8 @@ class EmailDatabase():
         self.print('Loading emails...')
         counter = 1
         email_refs = self.manager.execute(
-            'SELECT id FROM emails'
+            'SELECT id FROM emails WHERE owner = ?',
+            (self.p_id,)
         ).fetchall()
 
         if len(email_refs) > 0:
@@ -416,9 +442,9 @@ class EmailDatabase():
         for key in key_list:
             tag_info = self.manager.execute(
                 'SELECT id, tags FROM emails'
-                ' WHERE subject = ? AND created = ?'
-                ' AND to_address = ? AND from_address = ?',
-                (key['Subject'], key['Date'], key['To'], key['From']),
+                ' WHERE subject = ? AND created = ? AND to_address = ?'
+                ' AND from_address = ? AND owner = ?',
+                (key['Subject'], key['Date'], key['To'], key['From'], self.p_id)
             ).fetchone()
 
             if tag_info['tags'] is not None:
@@ -428,9 +454,9 @@ class EmailDatabase():
 
             self.manager.execute(
                 'UPDATE emails SET tags = ?'
-                ' WHERE subject = ? AND created = ?'
-                ' AND to_address = ? AND from_address = ?',
-                (str_tags, key['Subject'], key['Date'], key['To'], key['From']),
+                ' WHERE subject = ? AND created = ? AND to_address = ?'
+                ' AND from_address = ? AND owner = ?',
+                (str_tags, key['Subject'], key['Date'], key['To'], key['From'], self.p_id),
             )
             self.manager.commit()
             if self.bar != None:
@@ -447,7 +473,8 @@ class EmailDatabase():
         self.print('Loading emails...')
         counter = 1
         email_refs = self.manager.execute(
-            'SELECT id, tags FROM emails'
+            'SELECT id, tags FROM emails WHERE owner = ?',
+            (self.p_id,)
         ).fetchall()
 
         new_tags = tags.split(',')
@@ -475,20 +502,36 @@ class EmailDatabase():
         self.print('Loading emails...')
         counter = 1
         email_refs = self.manager.execute(
-            'SELECT id, tags FROM emails'
+            'SELECT id, tags FROM emails WHERE owner = ?',
+            (self.p_id,)
         ).fetchall()
-        if len(email_refs) > 0:
-            bar_add = 100 / len(email_refs)
-            email_list = []
-            self.print('Getting emails...')
-            for ref in email_refs:
-                email_list.append(self.get_message_details(ref))
-                self.bar(bar_add)
 
-            return email_list
+        if email_refs is None:
+            self.print('No emails to fetch...')
+            return False
+        elif len(email_refs) == 0:
+            self.print('No emails to fetch...')
+            return False
 
+        bar_add = 100 / len(email_refs)
+        email_list = []
+        self.print('Getting emails...')
+        for ref in email_refs:
+            email_list.append(self.get_message_details(ref))
+            self.bar(bar_add)
         self.print('Finished.')
-        return False
+        return email_list
+
+    def get_num_of_emails(self):
+        email_refs = self.manager.execute(
+            'SELECT id, tags FROM emails WHERE owner = ?',
+            (self.p_id,)
+        ).fetchall()
+        if email_refs is None:
+            return None
+        elif len(email_refs) == 0:
+            return None
+        return len(email_refs)
 
     def get_message_details(self, ref):
         '''Get one email message and all of its attachments

@@ -54,14 +54,13 @@ class EmailConnection():
 ## End class EmailConnection ##
 
 class EmailGetter:
-    def __init__(self, conn, threads, config, print_func, bar_func=None):
-        """
-        Keyword arguments:
+    def __init__(self, conn, config, print_func, bar_func=None):
+        '''Keyword arguments:
         conn -- An EmailConnection connection (EmailConnection.conn)
         threads -- An integer representing the amount of threads to spawn
         print_func -- An Application() class's put_msg function
         bar_func -- An Application() class's add_bar function
-        """
+        '''
         self.active = True
         self.conn = conn
         self.message_queue = Queue()
@@ -79,13 +78,8 @@ class EmailGetter:
     def get_emails_online(self, threads, since):
         self.print('Creating threads...')
         msg_amt = int(self.conn.select('INBOX')[1][0].decode('utf-8'))
-        self.print(
-            'There are '
-            + str(msg_amt)
-            + ' messages in INBOX'
-        )
+        self.print(''.join( ('There are ', str(msg_amt), ' messages in INBOX' ) ))
         msg_bar = 100 / msg_amt
-        
         self.conn.select('INBOX')
 
         # Search code
@@ -95,6 +89,7 @@ class EmailGetter:
             search_str = 'ALL'
         else:
             search_str = f'(SINCE "{last_date}")'
+
         typ, messages = self.conn.search(None, search_str)
         self.print('Searching messages...')
         if typ == 'OK' and messages[0]:
@@ -118,7 +113,6 @@ class EmailGetter:
             self.print('Finished sorting messages!')
 
             self.emails = msg_list
-            print(self.emails)
             return True
         else:
             self.print('No message response...')
@@ -148,7 +142,10 @@ class EmailGetter:
                 self.get_lock.release()
                 display_msg_num = msg_num.decode('utf-8')
                 status, data = conn.fetch(msg_num, '(RFC822)')
-                message = message_from_bytes(data[0][1])
+                try:
+                    message = message_from_bytes(data[0][1])
+                except:
+                    print(data)
                 self.finished_queue.put((message, msg_num))
                 self.message_queue.task_done()
                 self.print(f'Got message {display_msg_num}')

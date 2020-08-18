@@ -142,6 +142,7 @@ class PopupDialog(tk.Toplevel):
         self.title(title)
         self.iconbitmap('favicon.ico')
         self.resizable(width=False, height=False)
+        self.attributes('-topmost', True)
         center(self)
         self.update_idletasks()
     

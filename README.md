@@ -15,7 +15,7 @@ The database will get emails from after the last scan date. If there is no scan 
 
 **Load dates should be saved after each get.**
 
-### Storage Database [Not yet implemented]
+### Storage Database
 
 The storage database (`manager.db`) is intended to replace the `data.json` file storing dates and configuration info. The new table in the database should store profile information in a table called `profiles`. This data should include:
 
