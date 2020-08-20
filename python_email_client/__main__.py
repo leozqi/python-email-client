@@ -26,12 +26,7 @@ class Application(tk.Tk):
         self.log = Queue()
         self.bar_log = Queue()
         self.emails = None      # Email list
-
-        # For Toplevel() dialog
-        self.progress_w = None
-        self.w_status = None
-        self.w_status_lb = None
-        self.w_progress_br = None
+        self.profile_name = None
 
         self.database = EmailDatabase(self.wait_window, self.put_msg,
                                       self.add_bar)
@@ -46,16 +41,30 @@ class Application(tk.Tk):
             'Status.TLabel',
             relief=tk.SUNKEN,
             anchor=tk.W)
-        self.config(menu=OverMenu(self, self.database.reset_db))
+        self.config(menu=OverMenu(self, self.database.reset_profile))
+
+        # Top taskbar \
+        self.top_f = ttk.Frame(self, height=10) # Move progress bar and messages here instead
+        self.top_status_in = ttk.Label(self.top_f, text='Status:')
+        self.top_status_in.pack(side=tk.LEFT)
+        self.top_status = tk.StringVar()
+        self.top_status.set('')
+        self.top_status_lb = ttk.Label(self.top_f, textvariable=self.top_status, style='Status.TLabel')
+        self.top_status_lb.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.top_status_bar = ttk.Progressbar(self.top_f, orient=tk.HORIZONTAL,
+                                              mode='determinate', maximum=100)
+        self.top_status_bar['value'] = 0
+        self.top_status_bar.pack(side=tk.LEFT, fill=tk.X)
+        self.top_f.pack(fill=tk.X, expand=True)
 
         # Left paned window \
-        self.left_pw = ttk.Panedwindow(self, orient=tk.VERTICAL, width=320)
+        self.bottom_f = ttk.Frame(self)
+        self.left_pw = ttk.Panedwindow(self.bottom_f, orient=tk.VERTICAL, width=320)
 
         # Overview -\
         self.overview_lf = ttk.Labelframe(self.left_pw, text='Overview')
         self.overview_sv = tk.StringVar()
-        self.overview_sv.set(f'PythonEmail Client version {infos.VERSION}.'
-                             '\nServer not connected, emails not loaded.')
+        self.set_profile_field()
         self.overview_lb = ttk.Label(self.overview_lf,
                                  textvariable=self.overview_sv)
         self.overview_lb.pack(fill=tk.X)
@@ -71,10 +80,12 @@ class Application(tk.Tk):
         self.overview_rfbt.pack(fill=tk.X)
         self.overview_chbt = ttk.Button(self.overview_lf,
                                         text='Select Profile',
-                                        command=self.select_profile)
+                                        command=lambda: self.wrapper(
+                                            self.select_profile))
         self.overview_chbt.pack(fill=tk.X)
         self.overview_upbt = ttk.Button(self.overview_lf, text='Edit Profile',
-                                        command=self.database.edit_profile)
+                                        command=lambda: self.wrapper(
+                                            self.database.edit_profile))
         self.overview_upbt.pack(fill=tk.X)
 
         # Functions -\
@@ -144,11 +155,11 @@ class Application(tk.Tk):
         self.left_pw.pack(side=tk.LEFT, fill=tk.Y)
 
         # Scrolling Frame \
-        self.scrolling_frame = ScrollingFrameAndView(self)
+        self.scrolling_frame = ScrollingFrameAndView(self.bottom_f)
         self.scrolling_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
+        self.bottom_f.pack(fill=tk.BOTH, expand=True)
         # Tags \
-        self.select_profile()
+        self.wrapper(self.select_profile)
         self.tags = []
         profile_info = self.database.load_profile_info()
         if profile_info is not None:
@@ -165,10 +176,8 @@ class Application(tk.Tk):
     def close(self):
         '''Closes the window. Checks before if any tasks are alive.'''
         for task in self.tasks:
-            if task.is_alive() and not task.isDaemon():
-                error_msg = 'Cannot close, task in progress.'
-                self.put_msg(error_msg)
-                tk.messagebox.showwarning('Error', message=error_msg)
+            if task.is_alive() and not task.daemon:
+                tk.messagebox.showwarning('Warning', message='Cannot close, task in progress.')
                 return False
         self.destroy()
         return True
@@ -199,8 +208,10 @@ class Application(tk.Tk):
         if email_app.conn is None:
             self.put_msg('Not Connected: Connection error/No internet!')
             tk.messagebox.showerror('Error', 'No internet/Connection error.'
-                                             ' The app was unable to connect'
-                                             ' to the IMAP server.')
+                                             ' Unable to connect'
+                                             ' to the IMAP server.'
+                                             '\nCheck your IMAP server address'
+                                             ' and internet connection.')
             return False
         elif isinstance(email_app.conn, LoginError):
             self.put_msg('Login error. Check your profile\'s login info.')
@@ -223,9 +234,7 @@ class Application(tk.Tk):
         else:
             tk.messagebox.showinfo('Info', 'No new emails to save')
         self.database.save_date_now()
-
-        self.overview_sv.set(f'PythonEmail Client version {infos.VERSION}.'
-                             '\nServer connected, emails loaded.')
+        self.set_profile_field(loaded=True, name=self.profile_name)
         tk.messagebox.showinfo('Info:', 'Finished getting all emails.')
         email_app = None
         email_get = None
@@ -283,7 +292,7 @@ class Application(tk.Tk):
             email_amt = 100 / len(messages)
         except ZeroDivisionError:
             email_amt = 0
-        
+
         with Pool() as pool:
             for i in pool.imap_unordered(process_message_searches, messages):
                 self.add_bar(email_amt)
@@ -315,15 +324,16 @@ class Application(tk.Tk):
         self.put_msg('Finished getting tagged emails.')
         if not emails or len(emails) == 0:
             tk.messagebox.showinfo('Info', 'No searched emails found')
+            self.scrolling_frame.update_cnt()
             return False
-        self._display_mail(emails)
 
+        self._display_mail(emails)
         if tags is not None:
             if tk.messagebox.askyesno('Info', 'Found emails: Tag emails? If'
                                               ' emails are not tagged they'
                                               ' must be searched again to'
                                               ' view them.'):
-                self.wrapper(self._put_tags, tags)
+                self._put_tags(tags)
 
         self.scrolling_frame.update_cnt()
         self.put_msg('Finished displaying mail.')
@@ -331,9 +341,8 @@ class Application(tk.Tk):
 
     def select_profile(self):
         self.scrolling_frame.reset_frame()
-        self.database.configure_profile()
-        self.overview_sv.set(f'PythonEmail Client version {infos.VERSION}.'
-                             '\nServer not connected, emails not loaded.')
+        self.profile_name = self.database.configure_profile()
+        self.set_profile_field(name=self.profile_name)
         get_emails = False
         if self.database.get_num_of_emails() is not None:
             if tk.messagebox.askyesno('Info', 'You have emails in this'
@@ -375,12 +384,12 @@ class Application(tk.Tk):
         Should never be called on except when used by other methods of
         this class as they handle user input before this step.
         Keyword arguments:
-            emails -- list of (email, attached) tuples, where
-                      attached is also a list of attached filename paths.
+        emails -- list of (email, attached) tuples, where attached is also a
+                  list of attached filename paths.
         '''
         payload = None
         can_view = False
-
+        info_list = []
         for email, attached in emails:
             for part in email[0].walk():
                 if part.get_content_maintype() == 'text':
@@ -395,14 +404,10 @@ class Application(tk.Tk):
                 'To:': utils.parse_complete_sub(email[0].get('To')),
                 'From:': utils.parse_complete_sub(email[0].get('From'))}
 
-            if attached is not None:
-                self.scrolling_frame.add_button(
-                    utils.parse_sub(email[0].get('Subject')),
-                    payload, can_view, attached, email_info)
-            else:
-                self.scrolling_frame.add_button(
-                    utils.parse_sub(email[0].get('Subject')),
-                    payload, can_view, None, email_info)
+            info_list.append( (utils.parse_sub(email[0].get('Subject')),
+                                payload, can_view, attached, email_info) )
+
+        self.scrolling_frame.add_button_set(info_list)
 
     def put_msg(self, msg):
         '''Put message (msg) into the queue to be shown by status bar'''
@@ -421,44 +426,26 @@ class Application(tk.Tk):
                 break
 
         if task_alive:
-            if self.progress_w is None:
-                self.progress_w = PopupDialog('Task running...', '300x50')
-                self.w_status = tk.StringVar()
-                self.w_status.set(' ')
-                self.w_status_lb = ttk.Label(self.progress_w,
-                                                textvariable=self.w_status)
-                self.w_progress_br = ttk.Progressbar(self.progress_w,
-                                                        orient=tk.HORIZONTAL,
-                                                        mode='determinate',
-                                                        maximum=100)
-                self.w_progress_br['value'] = 0
-                self.w_status_lb.pack(fill=tk.X)
-                self.w_progress_br.pack(fill=tk.X)
-
             set_val = ''
             if not self.log.empty():
                 while not self.log.empty():
                     set_val = self.log.get()
                     self.log.task_done()
-                self.w_status.set(set_val)
+                self.top_status.set(set_val)
 
             add_val = 0
             if not self.bar_log.empty():
                 while not self.bar_log.empty():
                     add_val += self.bar_log.get()
                     self.bar_log.task_done()
-                
-                if self.w_progress_br['value'] + add_val > 100:
-                    self.w_progress_br['value'] = 100
-                else:
-                    self.w_progress_br['value'] += add_val
 
-        elif self.progress_w is not None:
-            self.progress_w.delete()
-            self.progress_w = None
-            self.w_status = None
-            self.w_status_lb = None
-            self.w_progress_br = None
+                if self.top_status_bar['value'] + add_val > 100:
+                    self.top_status_bar['value'] = 100
+                else:
+                    self.top_status_bar['value'] += add_val
+        else:
+            self.top_status.set('Idle...')
+            self.top_status_bar['value'] = 0
 
         active_threads = active_count()
         if self.get_thread_cnt() != active_threads:
@@ -489,6 +476,19 @@ class Application(tk.Tk):
 
     def disable_search(self):
         self.search_bt.configure(state=tk.DISABLED)
+
+    def set_profile_field(self, loaded=False, name=None):
+        string = f'PythonEmail Client version {infos.VERSION}.'
+        if loaded:
+            string = ''.join( (string, '\nServer connected, emails loaded.') )
+        else:
+            string = ''.join( (string, '\nServer not connected, emails not loaded.') )
+
+        if (name is not None):
+            string = ''.join( (string, f'\nProfile: {name}') )
+        else:
+            string = ''.join( (string, 'No profile loaded.'))
+        self.overview_sv.set(string)
 
 if __name__ == '__main__':
     app=Application()

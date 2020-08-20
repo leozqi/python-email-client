@@ -73,3 +73,14 @@ def is_whitespace(string):
         return True
     else:
         return False
+
+def valid_email(subject, date, to_line, from_line):
+    if not (isinstance(subject, str) or isinstance(subject, Header)):
+        return False
+    elif not (isinstance(date, datetime)):
+        return False
+    elif not (isinstance(to_line, str)):
+        return False
+    elif not (isinstance(from_line, str)):
+        return False
+    return True

@@ -145,7 +145,8 @@ class EmailGetter:
                 try:
                     message = message_from_bytes(data[0][1])
                 except:
-                    print(data)
+                    self.message_queue.task_done()
+                    continue
                 self.finished_queue.put((message, msg_num))
                 self.message_queue.task_done()
                 self.print(f'Got message {display_msg_num}')

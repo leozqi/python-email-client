@@ -23,6 +23,19 @@ def center(toplevel):
     y = screen_height/2 - size[1]/2
     toplevel.geometry("+%d+%d" % (x, y))
 
+def create_button(root, text, command, *args):
+        '''Returns a tkinter button with function and arguments
+        Keyword arguments:
+        text -- the text on the button
+        command -- a function which must not depend on any input other 
+                   than its arguments
+        *args -- the arguments of the command function in order.
+        '''
+        if len(args) == 0:
+            return ttk.Button(root, text=text, command=command)
+        else:
+            return ttk.Button(root, text=text, command=lambda: command(*args))
+
 class ScrollFrame(tk.Frame):
     def __init__(self, parent, scwidth=None):
         '''Creates a scrolling frame.
@@ -32,6 +45,7 @@ class ScrollFrame(tk.Frame):
         '''
         tk.Frame.__init__(self, parent)
         self.scwidth = scwidth
+        self.filler_frame = None
 
         if self.scwidth is None:
             self.canvas = tk.Canvas(self, borderwidth=0)
@@ -43,19 +57,35 @@ class ScrollFrame(tk.Frame):
         self.vsb = tk.Scrollbar(self, orient=tk.VERTICAL,
                                 command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.vsb.set)
-
-        if self.scwidth is None:
-            self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        else:
-            self.canvas.pack(side=tk.LEFT, fill=tk.Y)
-
         self.canvas.create_window((0,0), window=self.frame, anchor='nw',
                                   tags='self.frame')
         self.frame.bind('<Configure>', self._on_frame_config)
         self.frame.bind('<Enter>', self._bind_mswheel)
         self.frame.bind('<Leave>', self._unbind_mswheel)
-        self.vsb.pack(side=tk.LEFT, fill=tk.Y, expand=True)
+        self._show_canvas()
         self.elements = []
+
+    def _show_canvas(self):
+        if self.filler_frame is not None:
+            self.filler_frame.destroy()
+            self.filler_frame = None
+        if self.scwidth is None:
+            self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        else:
+            self.canvas.pack(side=tk.LEFT, fill=tk.Y)
+        self.vsb.pack(side=tk.LEFT, fill=tk.Y, expand=True)
+        self.update_idletasks()
+
+    def _hide_canvas(self):
+        self.canvas.pack_forget()
+        self.vsb.pack_forget()
+        if self.scwidth is None:
+            self.filler_frame = ttk.Frame(self)
+            self.filler_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        else:
+            self.filler_frame = ttk.Frame(self, width=self.scwidth)
+            self.filler_frame.pack(side=tk.LEFT, fill=tk.Y)
+        self.update_idletasks()
 
     # Binds/Unbinds mousewheel to the rendering canvas
     def _bind_mswheel(self, event):
@@ -101,6 +131,24 @@ class ScrollFrame(tk.Frame):
 
         self.elements[-1].pack(side=tk.TOP, fill=tk.X)
 
+    def add_button_list(self, buttons):
+        '''Adds a list of buttons and then refreshes the entire frame.
+        Keyword arguments:
+        buttons -- a list of ttk.Button objects
+        '''
+        self._hide_canvas()
+        current_pos = len(self.elements)
+        for button in buttons:
+            if not isinstance(button, ttk.Button):
+                raise ValueError('add_button_list was provided non-button objects')
+            self.elements.append(button)
+
+        while current_pos < len(self.elements):
+            self.elements[current_pos].pack(side=tk.TOP, fill=tk.X)
+            current_pos += 1
+        self._show_canvas()
+        self.update_idletasks()
+
     def reset_frame(self):
         '''Resets the frame.'''
         self.vsb.set(0, 0)
@@ -138,19 +186,27 @@ class PopupDialog(tk.Toplevel):
         geometry -- the width of the window, as a string: eg '1920x1680'
         '''
         tk.Toplevel.__init__(self)
+        self.deleted = False
         self.geometry(geometry)
         self.title(title)
+        self.protocol('WM_DELETE_WINDOW', self.close)
         self.iconbitmap('favicon.ico')
         self.resizable(width=False, height=False)
         self.attributes('-topmost', True)
         center(self)
         self.update_idletasks()
-    
+
+    def close(self):
+        if not self.deleted:
+            self.delete()
+            self.deleted = True
+
     def delete(self):
-        self.update_idletasks()
-        for child in self.winfo_children():
-            child.destroy()
-        self.destroy()
+        if not self.deleted:
+            self.update_idletasks()
+            for child in self.winfo_children():
+                child.destroy()
+            self.destroy()
 
 class ScrollingFrameAndView(tk.Frame):
     def __init__(self, parent):
@@ -215,6 +271,23 @@ class ScrollingFrameAndView(tk.Frame):
         self.scroll_frame.add_button(label, self.display, text_to_display,
                                      can_view, attach_ids, email_info)
 
+    def add_button_set(self, buttons):
+        '''Adds multiple buttons at a time
+        Keyword arguments:
+        buttons -- a list of button values packed in a tuple, containing:
+                   * label: a button's label
+                   * text_to_display: the text to display on the sidebar
+                   * can_view: whether or not the text is html
+                   * attach_ids: the ids of any file attachments
+                   * email_info: list of data such as the email's subject field.
+        '''
+        button_list = []
+        for tup in buttons:
+            button_list.append(create_button(self.scroll_frame.frame, tup[0],
+                                             self.display, tup[1], tup[2],
+                                             tup[3], tup[4]))
+        self.scroll_frame.add_button_list(button_list)
+
     def display(self, text, can_view, attach_ids, email_info):
         '''Displays email information.
         Keyword arguments:
@@ -242,6 +315,7 @@ class ScrollingFrameAndView(tk.Frame):
 
     def reset_frame(self):
         self.scroll_frame.reset_frame()
+        self.update_cnt()
 
     def update_cnt(self):
         '''Updates the count of the amount of emails in frame'''
@@ -336,7 +410,10 @@ class PopupProfileDialog():
                                                 text=label,
                                                 width=34))
             self.dialog_labels[-1].pack(side=tk.LEFT)
-            self.dialog_entries.append(ttk.Entry(self.dialog_frames[-1]))
+            if label == 'Password: ':
+                self.dialog_entries.append(ttk.Entry(self.dialog_frames[-1], show='*'))
+            else:
+                self.dialog_entries.append(ttk.Entry(self.dialog_frames[-1]))
             self.dialog_entries[-1].pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         self.spacer = ttk.Label(self.popup, text=' ')
@@ -345,7 +422,7 @@ class PopupProfileDialog():
                                     command=lambda: self.validate_profile(
                                     self.dialog_entries, profiles))
         self.submit_bt.pack()
-        
+
         if default is not None and len(default) <= 4:
             for n in range(len(default)):
                 self.dialog_entries[n].insert(0, default[n])

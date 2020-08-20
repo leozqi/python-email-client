@@ -1,4 +1,5 @@
 import email.utils
+import email.header
 import time
 import sys
 import os
@@ -100,6 +101,7 @@ class EmailDatabase():
             tk.messagebox.showwarning('Warning', 'No option was selected')
             return False
         self.update_paths()
+        return name
 
     def create_profile(self):
         profiles = self.manager.execute(
@@ -108,8 +110,8 @@ class EmailDatabase():
         new_profiles = profiles.copy()
         new_profiles.append('Create new...')
         p_info = self.get_profile_info('Create a new profile', profiles)
-        while len(p_info) == 0:
-            p_info = self.get_profile_info('Please fill out this form', profiles)
+        if len(p_info) == 0:
+            return False
         self.manager.execute(
             'INSERT INTO profiles (name, email, password, imap, port)'
             ' VALUES (?, ?, ?, ?, ?)',
@@ -153,9 +155,9 @@ class EmailDatabase():
             pass
         p_info = self.get_profile_info('Edit profile', profile_list,
                                        (email, name, password, imap))
-        while len(p_info) == 0:
-            p_info = self.get_profile_info('Please fill out this form:'
-                                           ' Edit profile', profiles)
+        if len(p_info) == 0:
+            return False
+
         self.manager.execute(
             'UPDATE profiles SET name = ?, email = ?, password = ?, imap = ?, port = ?'
             ' WHERE id = ?',
@@ -299,16 +301,13 @@ class EmailDatabase():
             to_line = email[0].get('To')
             from_line = email[0].get('From')
 
-            if (not (isinstance(subject, str)
-                    and isinstance(date, datetime)
-                    and isinstance(to_line, str)
-                    and isinstance(from_line, str))):
+            if not utils.valid_email(subject, date, to_line, from_line):
                 # Check if all inputs are correct
                 tk.messagebox.showerror('Error', 'Aborting... connection error. Resetting.')
                 self.print('Aborting... connection error. Resetting.')
-                self.reset_db()
+                self.reset_profile()
                 return False
-            
+
             exists = self.manager.execute(
                 'SELECT * FROM emails'
                 ' WHERE subject = ? AND created = ? AND to_address = ?'
@@ -396,11 +395,10 @@ class EmailDatabase():
 
             if directory_corrupt:
                 self.print('Loading database failed... corrupt elements.')
-                self.print('Deleting existing database...')
                 tk.messagebox.showerror('Error:', 'Loading database failed...'
                                                   ' Corrupt elements.'
                                                   ' Reinitializing.')
-                self.reset_db()
+                self.reset_profile()
                 self.print('Finished.')
                 return None
 

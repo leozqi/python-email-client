@@ -47,12 +47,12 @@ Emails should be under "groups" (referred to tags in the code) that mimic folder
 |Toggle checkbutton for whether or not all search terms should match for an email|July 2020| - [x]|
 |~~Store datetime.datetime last date stored value AND tag strings together in data.json|July 2020~~|Finished. Discontinued|
 |~~Create user profile selection system and store the gathered usernames/passwords/email servers through keyring and the data.json file~~|Aug 8 2020|Discontinued|
-|Implement GMAIL compatibility with python-oauth2|Aug 8 2020| - [ ]|
+|~~Implement GMAIL compatibility with python-oauth2~~|Aug 8 2020|Discontinued.|
 |Return a tuple of (id, email) messages by the database instead of just a email|Aug 8 2020| - [x]|
 |Allow viewing an email's to email address, from email address, subject line and date sent|Aug 9 2020| - [x]|
 |Implement Displaying Email attachments|Aug 11 2020| - [x]|
 |Implement Storage Database|Aug 14 2020| - [x]|
-|Rewrite gui_elements and `__main__.py` to remove complexity|Aug 15 2020| - [ ]|
+|Rewrite gui_elements and `__main__.py` to remove complexity|Aug 15 2020| - [~]|
 |Use a profile system to replace the placeholder .env file system to manage email login information|Aug 16 2020| - [x]|
 
 **Bugs:**
