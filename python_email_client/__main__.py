@@ -37,10 +37,7 @@ class Application(tk.Tk):
         self.iconbitmap('favicon.ico')
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.style = ttk.Style()
-        self.style.configure(
-            'Status.TLabel',
-            relief=tk.SUNKEN,
-            anchor=tk.W)
+        self.style.configure('Status.TLabel', relief=tk.SUNKEN, anchor=tk.W)
         self.config(menu=OverMenu(self, self.database.reset_profile))
 
         # Top taskbar \
@@ -59,6 +56,7 @@ class Application(tk.Tk):
 
         # Left paned window \
         self.bottom_f = ttk.Frame(self)
+        self.left_f = ttk.Frame(self.bottom_f, width=320)
         self.left_pw = ttk.Panedwindow(self.bottom_f, orient=tk.VERTICAL, width=320)
 
         # Overview -\
